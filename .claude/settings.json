@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [],
+    "deny": []
+  },
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "このBashコマンドのリスクを評価してください。\n\nコマンド: $ARGUMENTS\n\nBLOCK: クラウドリソースの削除(delete)、IAM/権限変更、FW変更、課金契約操作、公開アクセス許可、sudo/dd、難読化コマンド（base64デコードやパイプでbash/shに渡すパターンを含む）、uv/pip/npx/npm等でのパッケージインストール時にメジャーな管理元ではない・知名度の低いパッケージ（タイポスクワッティングや悪意あるパッケージの可能性）\nALLOW: 読み取り専用、ローカル操作（ファイルの作成・削除・移動・コピーを含む）、開発ツール、デプロイ・停止・起動等の運用操作（別途確認される）、広く知られたパッケージ（例: google-genai, playwright, react, numpy等）のインストール、判断不明（通常の権限チェックに委ねる）\n\nBLOCK時は以下の形式で出力（Bashコマンドに慣れていないエンジニアにもわかる平易な表現で。リスク説明のみ、禁止ルールへの言及不要、箇条書き5行以内）:\n[BLOCKED]\n# RiskCheckAgent(Hooks)が操作をブロックしました\n- (リスク説明の箇条書き)",
+            "model": "claude-haiku-4-5-20251001",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
