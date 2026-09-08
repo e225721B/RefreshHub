@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant M as "管理者"
+  participant P as "予約状況画面 (/admin)"
+  participant A as "Server Action<br/>getDaySchedule"
+  participant DB as "SQLite<br/>(Prisma 経由)"
+
+  M->>P: "日付を指定して開く"
+  P->>A: "その日の予約状況を要求"
+  A->>DB: "Bed / Shift / Reservation を取得"
+  DB-->>A: "レコード"
+  A->>A: "ベッド × 時間のグリッドに整形"
+  A-->>P: "グリッドデータ"
+  P-->>M: "どのベッドの何時が埋まっているかを表示（AC-8）"

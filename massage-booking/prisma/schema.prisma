@@ -1,0 +1,56 @@
+// docs/intern/design.md の ER 図と 1 対 1 で対応する。
+// 日付は "2026-09-08"、時刻は "09:00" の文字列で持つ（PoC では日時型の扱いに時間を取られないことを優先）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// マッサージ師
+model Therapist {
+  id           String        @id
+  name         String
+  gender       String // "female" | "male"
+  shifts       Shift[]
+  reservations Reservation[]
+}
+
+/// 施術ベッド。台数が変わってもデータ追加だけで対応できるようテーブルで持つ（要件 R-1 が未確認のため）
+model Bed {
+  id           String        @id
+  name         String
+  reservations Reservation[]
+}
+
+/// マッサージ師の勤務可能時間帯
+model Shift {
+  id          String    @id @default(cuid())
+  therapist   Therapist @relation(fields: [therapistId], references: [id])
+  therapistId String
+  date        String // "2026-09-08"
+  startTime   String // "09:00"
+  endTime     String // "14:00"
+
+  @@index([date])
+}
+
+/// 予約。押さえる枠は「施術時間 + 15 分」（+15 分は清掃・準備）
+model Reservation {
+  id           String    @id @default(cuid())
+  userName     String
+  bed          Bed       @relation(fields: [bedId], references: [id])
+  bedId        String
+  therapist    Therapist @relation(fields: [therapistId], references: [id])
+  therapistId  String
+  date         String // "2026-09-08"
+  startTime    String // "09:00" 施術開始
+  treatmentMin Int // 15 | 30 | 45
+  blockEndTime String // 施術 + 15 分の枠終了 "10:00"
+  createdAt    DateTime  @default(now())
+
+  @@index([date])
+}
