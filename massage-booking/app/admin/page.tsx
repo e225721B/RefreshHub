@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { UserBar } from "../UserBar";
 import { hhmmOfLocal, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
 import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
@@ -22,6 +25,11 @@ export default async function AdminPage({
   searchParams: Promise<{ date?: string }>;
 }) {
   const params = await searchParams;
+  // 予約状況は個人単位の利用実績にあたるため、管理者だけが開ける（要件 Q-7 / F-8）
+  const user = await getCurrentUser(await nextCookieJar());
+  if (!user) redirect("/login?next=%2Fadmin");
+  if (user.role !== "admin") redirect("/?denied=admin");
+
   const date =
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayString();
 
@@ -59,9 +67,12 @@ export default async function AdminPage({
             どのベッドの、どの時間帯に予約が入っているかを一覧で確認できます。
           </p>
         </div>
-        <Link href="/" className="text-sm underline underline-offset-4">
-          予約画面へ戻る
-        </Link>
+        <div className="flex flex-wrap items-center gap-4">
+          <Link href="/" className="text-sm underline underline-offset-4">
+            予約画面へ戻る
+          </Link>
+          <UserBar user={user} />
+        </div>
       </header>
 
       <form className="mb-6 flex items-end gap-3" action="/admin">
