@@ -1,23 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { hhmmOfLocal, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
-
-// 稼働時間。要件の Q-2「9:00〜14:00 と 15:00〜19:00」に合わせる。
-const OPEN_RANGES = [
-  { start: "09:00", end: "14:00" },
-  { start: "15:00", end: "19:00" },
-];
-
-function todayString(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
 
 /** 稼働時間を 15 分刻みに並べる */
 function timeRows(): number[] {
   const rows: number[] = [];
-  for (const range of OPEN_RANGES) {
-    for (let t = toMinutes(range.start); t < toMinutes(range.end); t += STEP_MIN) {
+  for (const range of DEFAULT_WORK_WINDOWS) {
+    for (let t = toMinutes(range.startTime); t < toMinutes(range.endTime); t += STEP_MIN) {
       rows.push(t);
     }
   }
@@ -34,12 +25,16 @@ export default async function AdminPage({
   const date =
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayString();
 
+  const start = toDateTime(date, "00:00");
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+
   const [beds, reservations] = await Promise.all([
     prisma.bed.findMany({ orderBy: { id: "asc" } }),
     prisma.reservation.findMany({
-      where: { date },
-      include: { therapist: true },
-      orderBy: { startTime: "asc" },
+      where: { startAt: { gte: start, lt: end } },
+      include: { user: true, therapist: { include: { user: true } } },
+      orderBy: { startAt: "asc" },
     }),
   ]);
 
@@ -50,8 +45,8 @@ export default async function AdminPage({
     return reservations.find(
       (r) =>
         r.bedId === bedId &&
-        toMinutes(r.startTime) <= minute &&
-        minute < toMinutes(r.blockEndTime),
+        toMinutes(hhmmOfLocal(r.startAt)) <= minute &&
+        minute < toMinutes(hhmmOfLocal(r.endAt)),
     );
   }
 
@@ -113,7 +108,7 @@ export default async function AdminPage({
                 </th>
                 {beds.map((bed) => {
                   const r = reservationAt(bed.id, minute);
-                  const isStart = r && toMinutes(r.startTime) === minute;
+                  const isStart = r && toMinutes(hhmmOfLocal(r.startAt)) === minute;
                   return (
                     <td
                       key={bed.id}
@@ -123,10 +118,10 @@ export default async function AdminPage({
                     >
                       {isStart ? (
                         <span>
-                          <strong>{r.userName}</strong>
+                          <strong>{r.user.name}</strong>
                           <span className="text-black/60 dark:text-white/60">
                             {" "}
-                            / {r.therapist.name} / 施術 {r.treatmentMin} 分
+                            / {r.therapist.user.name} / 施術 {r.treatmentMin} 分
                           </span>
                         </span>
                       ) : null}

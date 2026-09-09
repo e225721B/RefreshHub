@@ -1,5 +1,7 @@
-// docs/intern/design.md の ER 図と 1 対 1 で対応する。
-// 日付は "2026-09-08"、時刻は "09:00" の文字列で持つ（PoC では日時型の扱いに時間を取られないことを優先）。
+// docs/intern/design.md の 第2版 ER 図と 1 対 1 で対応する。
+// 日付・時刻は DateTime で持つ。ただし TherapistWorkHours の startAt / endAt だけは
+// 「毎週この曜日はこの時刻」という繰り返しルールで、特定の日付を持たない。
+// 日付部分はダミー値（1970-01-01T..Z）とし、時刻部分だけを見る（design.md の設計上の判断を参照）。
 
 generator client {
   provider = "prisma-client-js"
@@ -10,47 +12,112 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/// マッサージ師
+/// 利用者・マッサージ師・管理者の共通アカウント。自己登録は無く、管理者が登録する。
+model User {
+  id       String  @id @default(cuid())
+  name     String // 表示名（仮名）
+  email    String  @unique // ログイン ID
+  password String // ハッシュ化済み（lib/password.ts）
+  role     String // "user" | "therapist" | "admin"
+  active   Boolean @default(true)
+
+  therapist             Therapist?
+  reservations          Reservation[]      @relation("ReservationUser")
+  cancelledReservations Reservation[]      @relation("ReservationCancelledBy")
+  registeredAbsences    TherapistAbsence[]
+  notifications         Notification[]
+}
+
+/// マッサージ師。表示名は User.name を使うため name は持たない。
 model Therapist {
-  id           String        @id
-  name         String
-  gender       String // "female" | "male"
-  shifts       Shift[]
+  id     String  @id @default(cuid())
+  user   User    @relation(fields: [userId], references: [id])
+  userId String  @unique
+  gender String // "female" | "male"
+  active Boolean @default(true)
+
+  workHours    TherapistWorkHours[]
+  absences     TherapistAbsence[]
   reservations Reservation[]
 }
 
-/// 施術ベッド。台数が変わってもデータ追加だけで対応できるようテーブルで持つ（要件 R-1 が未確認のため）
+/// 施術ベッド。台数が変わってもデータ追加だけで対応できるようテーブルで持つ。
 model Bed {
-  id           String        @id
+  id           String        @id @default(cuid())
   name         String
+  active       Boolean       @default(true)
   reservations Reservation[]
 }
 
-/// マッサージ師の勤務可能時間帯
-model Shift {
+/// 既定（平日 9:00〜14:00・15:00〜20:00。lib/business-hours.ts）と違う曜日・時間で働く人だけが持つ例外。
+/// 1 行 = 1 曜日ぶんの勤務。その人の行が 1 件でもあれば既定は見ず、その行だけを使う。
+model TherapistWorkHours {
   id          String    @id @default(cuid())
   therapist   Therapist @relation(fields: [therapistId], references: [id])
   therapistId String
-  date        String // "2026-09-08"
-  startTime   String // "09:00"
-  endTime     String // "14:00"
+  dayOfWeek   Int // 0(日)〜6(土)。Date.getDay() と揃える
+  startAt     DateTime // その曜日の勤務開始（時刻だけ使う）
+  endAt       DateTime // その曜日の勤務終了（時刻だけ使う）
 
-  @@index([date])
+  @@index([therapistId])
 }
 
-/// 予約。押さえる枠は「施術時間 + 15 分」（+15 分は清掃・準備）
+/// 急な欠勤。登録すると重なる予約は自動キャンセルされる（app/actions/shifts.ts）。
+model TherapistAbsence {
+  id          String    @id @default(cuid())
+  therapist   Therapist @relation(fields: [therapistId], references: [id])
+  therapistId String
+  startAt     DateTime
+  endAt       DateTime
+  reason      String?
+  createdBy   User      @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@index([therapistId, startAt])
+}
+
+/// 予約。押さえる枠は「施術時間 + 15 分」（+15 分は清掃・準備）。
+/// キャンセルされても物理削除せず status を変える（利用実績として残すため）。
 model Reservation {
   id           String    @id @default(cuid())
-  userName     String
+  user         User      @relation("ReservationUser", fields: [userId], references: [id])
+  userId       String
   bed          Bed       @relation(fields: [bedId], references: [id])
   bedId        String
   therapist    Therapist @relation(fields: [therapistId], references: [id])
   therapistId  String
-  date         String // "2026-09-08"
-  startTime    String // "09:00" 施術開始
+  startAt      DateTime // 施術開始日時
   treatmentMin Int // 15 | 30 | 45
-  blockEndTime String // 施術 + 15 分の枠終了 "10:00"
+  endAt        DateTime // 施術 + 15 分の枠終了日時
+  status       String    @default("booked") // "booked" | "cancelled"
+  note         String?
   createdAt    DateTime  @default(now())
 
-  @@index([date])
+  cancelledBy   User?     @relation("ReservationCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancelledById String?
+  cancelReason  String?
+  cancelledAt   DateTime?
+
+  notifications Notification[]
+
+  @@index([startAt])
+  @@index([status])
+}
+
+/// 通知。実際には送信しない（D-2）。「誰に・どの経路で・何を・いつ送るか」を記録し、
+/// 管理画面（/admin/notifications）で一覧表示するためだけに使う。
+model Notification {
+  id            String      @id @default(cuid())
+  reservation   Reservation @relation(fields: [reservationId], references: [id])
+  reservationId String
+  toUser        User        @relation(fields: [toUserId], references: [id])
+  toUserId      String
+  kind          String // "reserved" | "reminder" | "cancelled"
+  channel       String // "email" | "slack"
+  subject       String
+  body          String
+  scheduledAt   DateTime // 送る予定の日時
+  sentAt        DateTime? // 疑似送信した日時（未送信は null）
+
+  @@index([toUserId])
 }

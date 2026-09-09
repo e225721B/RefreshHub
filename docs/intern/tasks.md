@@ -210,3 +210,46 @@ $ (DB 確認)
 
 - Next.js 16 は破壊的変更あり。`massage-booking/node_modules/next/dist/docs/` を参照して書く。
 - `searchParams` と `params` は **Promise** なので `await` が必要。
+
+---
+
+# 第 2 版: 土台タスク（F-1〜F-9）
+
+ブランチ: `feat/foundation`。implement_plan.md の「2. 土台タスク」に対応する。
+
+| # | タスク | 確認方法・結果 |
+|---|---|---|
+| F-1 | `schema.prisma` に `User` を追加し、`Reservation.userName` を `userId` に置き換え | `npx prisma migrate dev` 成功。テーブル一覧に `User` あり |
+| F-2 | `Reservation` に `status` / `note` / `cancelledById` / `cancelReason` / `createdAt` / `cancelledAt` を追加 | 同上 |
+| F-3 | `Shift` を廃止し、`Therapist` から `name` を削除（表示名は `User.name`）。既定の勤務時間は `lib/business-hours.ts` の定数（平日 9:00〜14:00・15:00〜20:00）。`TherapistWorkHours`（曜日ごとの例外）・`TherapistAbsence`（急な欠勤）を新設。`Reservation` の日付・時刻を `startAt`・`endAt`（DateTime）1 本ずつに統合 | `npx prisma migrate dev --name foundation_v2_schema` 成功。マイグレーション: `prisma/migrations/20260909060818_foundation_v2_schema/` |
+| F-4 | `Notification` テーブルを追加 | 同上のマイグレーションに含む |
+| F-5 | `seed.ts` を書き換え（管理者 1 名・マッサージ師 4 名・利用者 3 名。全員仮名・`@example.com`、共通パスワード）。動作確認用にセラピスト `t2` を月〜金 9:00〜14:00 の「午前のみ」で登録 | `npx tsx prisma/seed.ts` 実行。出力どおりの件数が投入されることを確認 |
+| F-6 | ログインの仕組み（`lib/session.ts`：Cookie で `userId` を保持。`login` / `logout` / `getCurrentUser`） | `lib/session.test.ts`（6 件）で、ログイン→取得→ログアウト・誤ったパスワード・存在しないメールを確認。すべて pass |
+| F-7 | `app/actions.ts` を `app/actions/booking.ts` に分割（新しいスキーマに合わせて `userId` ベースに書き換え） | `npm run build` 成功。ブラウザで実際に予約 → `/admin` に反映されることを確認（後述） |
+| F-8 | 権限チェックの共通関数（`lib/auth.ts`：`requireRole` / `requireLogin`） | `lib/auth.test.ts`（4 件）で、権限が無い・未ログインだと `AuthError` になることを確認。すべて pass |
+| F-9 | `lib/slots.ts` に `resolveShiftsForDate` を追加。既定 or `TherapistWorkHours` を候補にし、重なる `TherapistAbsence` を除外する方式に変更 | `lib/slots.test.ts` で新規 6 件を追加（既定パターン・土日は対象外・個別例外・例外があるが該当曜日の行が無い・欠勤で一部が削れる・別日の欠勤は無関係）。**既存の 14 件を含め合計 30 件すべて pass** |
+
+## ブラウザでの確認
+
+`npm run dev` を起動し、実際に操作して確認した。
+
+- `/` で「利用者」を選択（暫定: A-1 のログイン画面が入るまでの橋渡し。`app/actions/booking.ts` の `listActiveUsersForBooking`）→ 空き枠をドラッグ → 予約確定 → 成功メッセージが出る
+- `/admin` で、その予約が「利用者名 / 施術者名 / 施術時間」付きで表示される
+- `npx tsc --noEmit`・`npm run build`・`npm run lint` すべて成功
+
+## 暫定対応として残っているもの（B-1 で置き換える）
+
+`WeekSchedule.tsx` の「利用者」欄は、ログイン機能（A-1）が無い間の橋渡しとして**利用者を一覧から選ぶ**方式にしている。
+ログインが入ったら、B-1 で「ログイン中のユーザーで予約する」（`getCurrentUser()` を使う）に置き換える。
+
+## 実装宣言（第 2 版・土台）
+
+> **F-1〜F-9 をすべて実装した。** スキーマは design.md 第 2 版の ER 図（6 テーブル: User / Therapist / Bed /
+> TherapistWorkHours / TherapistAbsence / Reservation。Notification は本タスクでテーブルのみ追加）と一致させた。
+> 自動テストは 30 件（既存 14 件 + 新規 16 件）すべて pass、`build` / `lint` / `tsc` も通る。
+> 既存の予約画面・管理者画面は、新しいスキーマに合わせた最小限の書き換えで動作を維持した
+> （表示名の入力を廃止しユーザー選択に置き換えたのは、ログイン前の暫定対応）。
+>
+> A（認証） / B（利用者・マッサージ師） / C（管理者）はこの後、着手できる。
+
+確認: 学生 [ ] / メンター [ ]
