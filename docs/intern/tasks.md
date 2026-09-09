@@ -256,18 +256,22 @@ $ (DB 確認)
 
 ---
 
-# B: 利用者側アクション（B-2 / B-3 / B-5 / B-6 の土台）
+# B: 利用者側アクション（B-2 / B-3 / B-5 の土台）
 
-ブランチ: `feat/booking-user-actions`。A（ログイン画面）を別メンバーが並行して作っているため、
+ブランチ: `feat/booking-user-actions`。担当は**利用者側のみ**（マッサージ師側は別担当）。
+当初 A（ログイン画面）を別メンバーが並行して作っていたため、
 **既存の UI ファイル（`WeekSchedule.tsx` など）には手を入れず、サーバーアクション（バックエンドロジック）だけ**を先に進めた。
-UI への組み込みは、ログイン画面が固まってから改めて行う。
+A のログイン（PR #6）はマージ済みのため、以降は UI への組み込みも進める。
 
 | # | タスク | 内容 | 確認方法・結果 |
 |---|---|---|---|
 | B-3 の締切ルール | `lib/cancellation.ts`：`canUserCancel(startAt, now)` | 利用者は施術開始の2時間前まで（design.md D-3） | `lib/cancellation.test.ts`（4件）で境界（ちょうど2時間前・1秒前・1秒後・施術後）を確認。すべて pass |
 | B-2 | `app/actions/booking.ts`：`listMyReservations(userId)` | ログイン中の利用者の、これからの予約一覧（`status="booked"` かつ未来のみ）。ベッド名・施術者名は関連から解決 | スクリプトで直接呼び出し、予約1件を正しく返すことを確認 |
 | B-3 / B-5 | `app/actions/booking.ts`：`cancelReservation(reservationId, userId)` | 本人の予約のみキャンセル可。締切を過ぎていたら拒否。`status="cancelled"` / `cancelledById` / `cancelledAt` を保存 | スクリプトで確認: 他人がキャンセル→拒否、本人がキャンセル→成功しDBに反映されることを確認 |
-| B-6 | `app/actions/therapist.ts`（新規）：`listMyAssignments(userId)` | ログイン中のマッサージ師の、これからの担当予約一覧（AC-15）。マッサージ師でなければ空配列 | スクリプトで確認: 施術者に紐づくUserのidを渡すと、担当予約が利用者名付きで返ることを確認 |
+
+**`app/actions/therapist.ts`（`listMyAssignments`, B-6）はこの PR から外した。**
+担当が利用者側のみになったため。マッサージ師側の担当が決まったら、そちらで改めて作る
+（一度実装・動作確認まで済ませたコードなので、必要なら過去のコミット `853eeb0` から参照できる）。
 
 ## 確認方法の補足
 
@@ -276,15 +280,14 @@ UI への組み込みは、ログイン画面が固まってから改めて行�
 
 `npx tsc --noEmit` / `npm run build` / `npm run lint` すべて成功。自動テストは 34 件（既存 30 件 + 新規 4 件）すべて pass。
 
-## UI への組み込みが未了なもの
+## UI への組み込みが未了なもの（利用者側のみ）
 
 - B-1（ログイン中のユーザーで予約する。今は暫定の一覧選択のまま）
 - B-2 の表示（上段に一覧を出す）
 - B-3 のキャンセルボタン
-- B-4（モーダルでの確認）
-- B-6 の `/therapist` 画面そのもの
+- B-4（モーダルでの確認。備考欄を追加。性別選択は要検討: Issue #7）
 - B-7（利用ガイドの文言更新）
 
-これらは、A のログイン画面が固まり次第、`getCurrentUser()`（`lib/session.ts`）と組み合わせて UI に配線する。
+A のログイン（PR #6）がマージ済みのため、`getCurrentUser()`（`lib/session.ts`）と組み合わせて UI に配線していく。
 
 確認: 学生 [ ] / メンター [ ]
