@@ -15,6 +15,7 @@ import {
   type Slot,
 } from "@/lib/slots";
 import { canUserCancel, USER_CANCEL_CUTOFF_HOURS } from "@/lib/cancellation";
+import { AuthError, requireLogin } from "@/lib/auth";
 
 /** 入力値の検証。フォームは誰でも直接呼べるため、サーバ側で必ず確かめる。 */
 function isValidDate(date: string): boolean {
@@ -116,28 +117,28 @@ export type ReserveResult =
 
 /**
  * 予約を保存する（AC-2）。
- *
- * 暫定: ログイン機能（A-1）が入るまでの橋渡しとして、利用者は userId を直接指定する
- * （画面側は listActiveUsersForBooking() の一覧から選ぶ）。
- * ログインが入ったら B-1 で「ログイン中のユーザーで予約する」に置き換える。
+ * 利用者はここでは指定しない。ログイン中のユーザー（B-1）で予約する。
  */
 export async function createReservation(input: {
-  userId: string;
   date: string;
   startTime: string;
   treatmentMin: number;
   bedId: string;
   therapistId: string;
 }): Promise<ReserveResult> {
-  if (!input.userId) return { ok: false, message: "利用者を選んでください" };
+  let user;
+  try {
+    user = await requireLogin();
+  } catch (e) {
+    if (e instanceof AuthError) return { ok: false, message: "ログインしてください" };
+    throw e;
+  }
+
   if (!isValidDate(input.date)) return { ok: false, message: "日付が正しくありません" };
   if (!isValidTime(input.startTime)) return { ok: false, message: "時刻が正しくありません" };
   if (!isValidTreatment(input.treatmentMin)) {
     return { ok: false, message: "施術時間が正しくありません" };
   }
-
-  const user = await prisma.user.findUnique({ where: { id: input.userId } });
-  if (!user || !user.active) return { ok: false, message: "利用者が見つかりません" };
 
   const blockEndTime = toHHMM(toMinutes(input.startTime) + input.treatmentMin + CLEANUP_MIN);
 
@@ -167,7 +168,7 @@ export async function createReservation(input: {
 
   await prisma.reservation.create({
     data: {
-      userId: input.userId,
+      userId: user.id,
       bedId: input.bedId,
       therapistId: input.therapistId,
       startAt: toDateTime(input.date, input.startTime),
@@ -184,18 +185,6 @@ export async function createReservation(input: {
   };
 }
 
-/**
- * 暫定: ログイン機能（A-1）が入るまでの橋渡し。
- * 本来は getCurrentUser()（lib/session.ts）でログイン中の利用者を使う。
- * それまでの間、予約画面から利用者を選べるようにするための一覧。
- */
-export async function listActiveUsersForBooking(): Promise<{ id: string; name: string }[]> {
-  const users = await prisma.user.findMany({
-    where: { active: true, role: "user" },
-    orderBy: { name: "asc" },
-  });
-  return users.map((u) => ({ id: u.id, name: u.name }));
-}
 
 export type MyReservation = {
   id: string;
@@ -211,12 +200,21 @@ export type MyReservation = {
 };
 
 /**
- * ログイン中の利用者の、これからの予約一覧（B-2 の土台）。
+ * ログイン中の利用者の、これからの予約一覧（B-2）。
  * status = "booked" かつ、まだ始まっていないものだけを返す。
+ * 未ログインなら空配列を返す（画面側は未ログインなら /login にリダイレクト済みのはずだが念のため）。
  */
-export async function listMyReservations(userId: string): Promise<MyReservation[]> {
+export async function listMyReservations(): Promise<MyReservation[]> {
+  let user;
+  try {
+    user = await requireLogin();
+  } catch (e) {
+    if (e instanceof AuthError) return [];
+    throw e;
+  }
+
   const reservations = await prisma.reservation.findMany({
-    where: { userId, status: "booked", startAt: { gte: new Date() } },
+    where: { userId: user.id, status: "booked", startAt: { gte: new Date() } },
     include: { bed: true, therapist: { include: { user: true } } },
     orderBy: { startAt: "asc" },
   });
@@ -240,13 +238,18 @@ export type CancelResult = { ok: true; message: string } | { ok: false; message:
  * 利用者本人が、自分の予約をキャンセルする（B-3 / B-5、AC-13）。
  * 施術開始の 2 時間前まで（design.md D-3）。管理者によるキャンセルは C 側の別アクションで扱う。
  */
-export async function cancelReservation(
-  reservationId: string,
-  userId: string,
-): Promise<CancelResult> {
+export async function cancelReservation(reservationId: string): Promise<CancelResult> {
+  let user;
+  try {
+    user = await requireLogin();
+  } catch (e) {
+    if (e instanceof AuthError) return { ok: false, message: "ログインしてください" };
+    throw e;
+  }
+
   const reservation = await prisma.reservation.findUnique({ where: { id: reservationId } });
   if (!reservation) return { ok: false, message: "予約が見つかりません" };
-  if (reservation.userId !== userId) {
+  if (reservation.userId !== user.id) {
     return { ok: false, message: "この予約をキャンセルする権限がありません" };
   }
   if (reservation.status !== "booked") {
@@ -261,7 +264,7 @@ export async function cancelReservation(
 
   await prisma.reservation.update({
     where: { id: reservationId },
-    data: { status: "cancelled", cancelledById: userId, cancelledAt: new Date() },
+    data: { status: "cancelled", cancelledById: user.id, cancelledAt: new Date() },
   });
 
   revalidatePath("/");

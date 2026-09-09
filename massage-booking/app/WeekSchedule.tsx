@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import {
-  createReservation,
-  fetchWeekAvailability,
-  listActiveUsersForBooking,
-  type WeekAvailability,
-} from "./actions/booking";
+import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -46,9 +41,6 @@ type Selection = { date: string; anchorRow: number; hoverRow: number };
 export function WeekSchedule() {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   const [genders, setGenders] = useState<string[]>(["female", "male"]);
-  // 暫定: ログイン機能（A-1）が入るまでの橋渡し。それまでは一覧から選ぶ（app/actions/booking.ts 参照）。
-  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
-  const [userId, setUserId] = useState("");
   const [availability, setAvailability] = useState<WeekAvailability>({});
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -73,13 +65,6 @@ export function WeekSchedule() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
-
-  useEffect(() => {
-    listActiveUsersForBooking().then((list) => {
-      setUsers(list);
-      setUserId((current) => current || list[0]?.id || "");
-    });
-  }, []);
 
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが緑になる条件） */
   function isCellOpen(date: string, time: string): boolean {
@@ -144,13 +129,8 @@ export function WeekSchedule() {
 
   async function confirmReservation() {
     if (!selected || !selected.slot) return;
-    if (!userId) {
-      setMessage({ ok: false, text: "利用者を選んでください" });
-      return;
-    }
     setSaving(true);
     const result = await createReservation({
-      userId,
       date: selected.date,
       startTime: selected.startTime,
       treatmentMin: selected.treatmentMin,
@@ -167,23 +147,6 @@ export function WeekSchedule() {
     <div className="space-y-5">
       {/* 条件 */}
       <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">利用者</span>
-          {/* 暫定: ログイン機能（A-1）が入るまでの橋渡し。ログイン後は自動で入るようになる（B-1）。 */}
-          <select
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            className="rounded border border-black/20 px-3 py-2 dark:border-white/25 dark:bg-transparent"
-          >
-            {users.length === 0 && <option value="">読み込み中…</option>}
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
         <fieldset className="flex flex-col gap-1 text-sm">
           <legend className="font-medium">施術者</legend>
           <div className="flex gap-4 py-2">
