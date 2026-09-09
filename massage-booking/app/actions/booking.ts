@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { hhmmOfLocal, toDateTime, weekdaysFrom } from "@/lib/dates";
+import { hhmmOfLocal, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
   TREATMENT_OPTIONS,
@@ -14,6 +14,7 @@ import {
   type Gender,
   type Slot,
 } from "@/lib/slots";
+import { canUserCancel, USER_CANCEL_CUTOFF_HOURS } from "@/lib/cancellation";
 
 /** 入力値の検証。フォームは誰でも直接呼べるため、サーバ側で必ず確かめる。 */
 function isValidDate(date: string): boolean {
@@ -194,4 +195,76 @@ export async function listActiveUsersForBooking(): Promise<{ id: string; name: s
     orderBy: { name: "asc" },
   });
   return users.map((u) => ({ id: u.id, name: u.name }));
+}
+
+export type MyReservation = {
+  id: string;
+  date: string; // "2026-09-08"
+  startTime: string; // "09:00"
+  endTime: string; // "10:00"（施術 + 15 分の枠終了）
+  treatmentMin: number;
+  bedName: string;
+  therapistName: string;
+  note: string | null;
+  /** 施術開始の 2 時間前を過ぎていたら false（キャンセルボタンを押せなくする） */
+  canCancel: boolean;
+};
+
+/**
+ * ログイン中の利用者の、これからの予約一覧（B-2 の土台）。
+ * status = "booked" かつ、まだ始まっていないものだけを返す。
+ */
+export async function listMyReservations(userId: string): Promise<MyReservation[]> {
+  const reservations = await prisma.reservation.findMany({
+    where: { userId, status: "booked", startAt: { gte: new Date() } },
+    include: { bed: true, therapist: { include: { user: true } } },
+    orderBy: { startAt: "asc" },
+  });
+
+  return reservations.map((r) => ({
+    id: r.id,
+    date: toDateString(r.startAt),
+    startTime: hhmmOfLocal(r.startAt),
+    endTime: hhmmOfLocal(r.endAt),
+    treatmentMin: r.treatmentMin,
+    bedName: r.bed.name,
+    therapistName: r.therapist.user.name,
+    note: r.note,
+    canCancel: canUserCancel(r.startAt),
+  }));
+}
+
+export type CancelResult = { ok: true; message: string } | { ok: false; message: string };
+
+/**
+ * 利用者本人が、自分の予約をキャンセルする（B-3 / B-5、AC-13）。
+ * 施術開始の 2 時間前まで（design.md D-3）。管理者によるキャンセルは C 側の別アクションで扱う。
+ */
+export async function cancelReservation(
+  reservationId: string,
+  userId: string,
+): Promise<CancelResult> {
+  const reservation = await prisma.reservation.findUnique({ where: { id: reservationId } });
+  if (!reservation) return { ok: false, message: "予約が見つかりません" };
+  if (reservation.userId !== userId) {
+    return { ok: false, message: "この予約をキャンセルする権限がありません" };
+  }
+  if (reservation.status !== "booked") {
+    return { ok: false, message: "この予約はすでにキャンセルされています" };
+  }
+  if (!canUserCancel(reservation.startAt)) {
+    return {
+      ok: false,
+      message: `施術開始の${USER_CANCEL_CUTOFF_HOURS}時間前を過ぎているため、キャンセルできません`,
+    };
+  }
+
+  await prisma.reservation.update({
+    where: { id: reservationId },
+    data: { status: "cancelled", cancelledById: userId, cancelledAt: new Date() },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/admin");
+  return { ok: true, message: "予約をキャンセルしました" };
 }

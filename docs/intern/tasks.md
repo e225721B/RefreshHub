@@ -253,3 +253,38 @@ $ (DB 確認)
 > A（認証） / B（利用者・マッサージ師） / C（管理者）はこの後、着手できる。
 
 確認: 学生 [ ] / メンター [ ]
+
+---
+
+# B: 利用者側アクション（B-2 / B-3 / B-5 / B-6 の土台）
+
+ブランチ: `feat/booking-user-actions`。A（ログイン画面）を別メンバーが並行して作っているため、
+**既存の UI ファイル（`WeekSchedule.tsx` など）には手を入れず、サーバーアクション（バックエンドロジック）だけ**を先に進めた。
+UI への組み込みは、ログイン画面が固まってから改めて行う。
+
+| # | タスク | 内容 | 確認方法・結果 |
+|---|---|---|---|
+| B-3 の締切ルール | `lib/cancellation.ts`：`canUserCancel(startAt, now)` | 利用者は施術開始の2時間前まで（design.md D-3） | `lib/cancellation.test.ts`（4件）で境界（ちょうど2時間前・1秒前・1秒後・施術後）を確認。すべて pass |
+| B-2 | `app/actions/booking.ts`：`listMyReservations(userId)` | ログイン中の利用者の、これからの予約一覧（`status="booked"` かつ未来のみ）。ベッド名・施術者名は関連から解決 | スクリプトで直接呼び出し、予約1件を正しく返すことを確認 |
+| B-3 / B-5 | `app/actions/booking.ts`：`cancelReservation(reservationId, userId)` | 本人の予約のみキャンセル可。締切を過ぎていたら拒否。`status="cancelled"` / `cancelledById` / `cancelledAt` を保存 | スクリプトで確認: 他人がキャンセル→拒否、本人がキャンセル→成功しDBに反映されることを確認 |
+| B-6 | `app/actions/therapist.ts`（新規）：`listMyAssignments(userId)` | ログイン中のマッサージ師の、これからの担当予約一覧（AC-15）。マッサージ師でなければ空配列 | スクリプトで確認: 施術者に紐づくUserのidを渡すと、担当予約が利用者名付きで返ることを確認 |
+
+## 確認方法の補足
+
+`createReservation` と同様、`cancelReservation` は `revalidatePath` を呼ぶため Next.js のリクエスト文脈外（素の `tsx` スクリプト）から呼ぶとエラーになる。
+実際の DB 更新（`status` の変更など）は `revalidatePath` の**前**に行われるため、更新結果は別スクリプトで直接 DB を確認して検証した（実際の画面操作では問題なく動く）。
+
+`npx tsc --noEmit` / `npm run build` / `npm run lint` すべて成功。自動テストは 34 件（既存 30 件 + 新規 4 件）すべて pass。
+
+## UI への組み込みが未了なもの
+
+- B-1（ログイン中のユーザーで予約する。今は暫定の一覧選択のまま）
+- B-2 の表示（上段に一覧を出す）
+- B-3 のキャンセルボタン
+- B-4（モーダルでの確認）
+- B-6 の `/therapist` 画面そのもの
+- B-7（利用ガイドの文言更新）
+
+これらは、A のログイン画面が固まり次第、`getCurrentUser()`（`lib/session.ts`）と組み合わせて UI に配線する。
+
+確認: 学生 [ ] / メンター [ ]
