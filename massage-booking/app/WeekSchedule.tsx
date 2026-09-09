@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
+import {
+  createReservation,
+  fetchWeekAvailability,
+  listMyReservations,
+  type MyReservation,
+  type WeekAvailability,
+} from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -42,6 +48,7 @@ export function WeekSchedule() {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   const [genders, setGenders] = useState<string[]>(["female", "male"]);
   const [availability, setAvailability] = useState<WeekAvailability>({});
+  const [myReservations, setMyReservations] = useState<MyReservation[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -53,11 +60,18 @@ export function WeekSchedule() {
   const today = todayString();
   const gendersKey = genders.join(",");
 
+  const loadMyReservations = useCallback(async () => {
+    setMyReservations(await listMyReservations());
+  }, []);
+
   const reload = useCallback(async () => {
-    setAvailability(await fetchWeekAvailability(monday, genders));
+    await Promise.all([
+      fetchWeekAvailability(monday, genders).then(setAvailability),
+      loadMyReservations(),
+    ]);
     // gendersKey で依存を表す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monday, gendersKey]);
+  }, [monday, gendersKey, loadMyReservations]);
 
   useEffect(() => {
     startLoading(async () => {
@@ -65,6 +79,15 @@ export function WeekSchedule() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
+
+  // 自分の予約一覧は週の切り替えとは無関係なので、最初に 1 回だけ取得する（B-2）。
+  // 予約・キャンセル後は reload() 経由で更新する。
+  useEffect(() => {
+    startLoading(async () => {
+      await loadMyReservations();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが緑になる条件） */
   function isCellOpen(date: string, time: string): boolean {
@@ -145,6 +168,31 @@ export function WeekSchedule() {
 
   return (
     <div className="space-y-5">
+      {/* 自分の予約（B-2） */}
+      {myReservations.length > 0 && (
+        <section className="rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
+          <h2 className="mb-3 text-sm font-semibold">自分の予約</h2>
+          <ul className="space-y-2">
+            {myReservations.map((r) => (
+              <li
+                key={r.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-black/10 bg-background px-3 py-2 text-sm dark:border-white/15"
+              >
+                <span>
+                  {formatShort(r.date)} {r.startTime}〜{r.endTime}
+                  <span className="ml-2 text-black/60 dark:text-white/60">
+                    {r.bedName} / {r.therapistName} / 施術 {r.treatmentMin} 分
+                  </span>
+                  {r.note && (
+                    <span className="ml-2 text-black/60 dark:text-white/60">備考: {r.note}</span>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {/* 条件 */}
       <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
         <fieldset className="flex flex-col gap-1 text-sm">
