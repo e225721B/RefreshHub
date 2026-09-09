@@ -102,6 +102,11 @@ export function getAvailableSlots(params: {
 
   for (const start of [...startCandidates].sort((a, b) => a - b)) {
     const end = start + blockMin;
+    // 他の予約と重ならないかの判定には、自分の清掃時間（CLEANUP_MIN）を含めない。
+    // 清掃は「施術が終わった後」に必要なだけで、直後に別の予約が入っていても構わない
+    // （＝自分の清掃時間ぶん、直前の枠が塞がれる必要はない）。
+    // blockMin（清掃を含む）はシフト内に収まるかどうかの判定にのみ使う。
+    const treatmentEnd = start + treatmentMin;
 
     // この時間帯に勤務していて、かつ予約が入っていないマッサージ師。
     // 性別の希望があれば、その条件を満たす人だけから選ぶ。
@@ -120,7 +125,7 @@ export function getAvailableSlots(params: {
           !reservations.some(
             (r) =>
               r.therapistId === therapistId &&
-              overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
+              overlaps(start, treatmentEnd, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
           ),
       );
     if (!freeTherapist) continue;
@@ -131,7 +136,7 @@ export function getAvailableSlots(params: {
         !reservations.some(
           (r) =>
             r.bedId === bed.id &&
-            overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
+            overlaps(start, treatmentEnd, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
         ),
     );
     if (!freeBed) continue;
@@ -154,20 +159,24 @@ export function getAvailableSlots(params: {
   return slots;
 }
 
-/** 予約を保存する直前に、その枠がまだ空いているかを確かめる */
+/**
+ * 予約を保存する直前に、その枠がまだ空いているかを確かめる。
+ * getAvailableSlots と同じ考え方で、自分の清掃時間（CLEANUP_MIN）は
+ * 他の予約との重なり判定に含めない（治療時間ぶんだけで判定する）。
+ */
 export function isStillAvailable(params: {
   reservations: Reservation[];
   bedId: string;
   therapistId: string;
   startTime: string;
-  blockEndTime: string;
+  treatmentMin: number;
 }): boolean {
   const start = toMinutes(params.startTime);
-  const end = toMinutes(params.blockEndTime);
+  const treatmentEnd = start + params.treatmentMin;
   return !params.reservations.some(
     (r) =>
       (r.bedId === params.bedId || r.therapistId === params.therapistId) &&
-      overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
+      overlaps(start, treatmentEnd, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
   );
 }
 

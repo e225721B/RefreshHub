@@ -158,7 +158,7 @@ export async function createReservation(input: {
       bedId: input.bedId,
       therapistId: input.therapistId,
       startTime: input.startTime,
-      blockEndTime,
+      treatmentMin: input.treatmentMin,
     })
   ) {
     return { ok: false, message: "たった今この枠は埋まりました。表を更新します" };

@@ -126,6 +126,43 @@ test("勤務時間をはみ出す枠は出さない（9:45 開始の 30 分枠�
   assert.equal(slots.some((s) => s.startTime === "09:45"), false);
 });
 
+test("全ベッドが 10:00〜11:00 で埋まっていても、9:45 開始の 15 分枠は選べる（清掃は自分の施術の後だけでよい）", () => {
+  const longShift = [
+    { therapistId: "t1", startTime: "09:00", endTime: "12:00" },
+    { therapistId: "t2", startTime: "09:00", endTime: "12:00" },
+    { therapistId: "t3", startTime: "09:00", endTime: "12:00" },
+  ];
+  const threeTherapists = [
+    ...therapists,
+    { id: "t3", name: "高橋", gender: "male" },
+  ];
+  const threeBeds = beds; // b1, b2, b3 の 3 台
+  // 3 人が 10:00 から 45 分（枠は 10:00〜11:00）を、ベッドを 1 台ずつ使って予約している
+  const reservations = [
+    { bedId: "b1", therapistId: "t1", startTime: "10:00", blockEndTime: "11:00" },
+    { bedId: "b2", therapistId: "t2", startTime: "10:00", blockEndTime: "11:00" },
+    { bedId: "b3", therapistId: "t3", startTime: "10:00", blockEndTime: "11:00" },
+  ];
+
+  const slots = getAvailableSlots({
+    shifts: longShift,
+    beds: threeBeds,
+    therapists: threeTherapists,
+    reservations,
+    treatmentMin: 15,
+  });
+  const startTimes = slots.map((s) => s.startTime);
+
+  // 9:45（施術は 9:45〜10:00 で終わる）は選べる
+  assert.ok(startTimes.includes("09:45"), "9:45 は選べること");
+  // 10:00〜10:45 は引き続き選べない（実際に埋まっている時間帯）
+  assert.deepEqual(
+    startTimes.filter((t) => t >= "10:00" && t < "11:00"),
+    [],
+    "10:00〜11:00 の間は選べないこと",
+  );
+});
+
 test("保存直前の確認: 同じベッドが埋まっていれば false", () => {
   const ok = isStillAvailable({
     reservations: [
@@ -134,7 +171,7 @@ test("保存直前の確認: 同じベッドが埋まっていれば false", () 
     bedId: "b1",
     therapistId: "t1",
     startTime: "09:15",
-    blockEndTime: "09:45",
+    treatmentMin: 15,
   });
   assert.equal(ok, false);
 });
@@ -147,7 +184,21 @@ test("保存直前の確認: ベッドもマッサージ師も空いていれば
     bedId: "b2",
     therapistId: "t1",
     startTime: "09:00",
-    blockEndTime: "09:30",
+    treatmentMin: 15,
+  });
+  assert.equal(ok, true);
+});
+
+test("保存直前の確認: 自分の清掃時間が次の予約の開始と重なっていても true（清掃は自分の施術の後だけでよい）", () => {
+  const ok = isStillAvailable({
+    reservations: [
+      // 10:00 開始・施術 45 分（枠は 10:00〜11:00）の予約が同じベッドに入っている
+      { bedId: "b1", therapistId: "t2", startTime: "10:00", blockEndTime: "11:00" },
+    ],
+    bedId: "b1",
+    therapistId: "t1",
+    startTime: "09:45", // 施術 15 分なら治療は 9:45〜10:00 で終わり、次の予約とは重ならない
+    treatmentMin: 15,
   });
   assert.equal(ok, true);
 });
