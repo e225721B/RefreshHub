@@ -44,27 +44,38 @@ async function slotsForDate(
   return getAvailableSlots({ shifts, beds, therapists, reservations, treatmentMin, genders });
 }
 
-/** 週表示のためのデータ。日付ごとに「開始時刻 → 空き枠」を持つ（AC-1 / AC-3 / AC-4） */
-export type WeekSlots = Record<string, Record<string, Slot>>;
+/**
+ * 週表示のためのデータ。
+ * 施術時間は画面のドラッグで決まるため、15 / 30 / 45 分すべてぶんの空き状況を
+ * まとめて返す。日付 → 施術時間 → 開始時刻 → 空き枠、の順で引ける。
+ * （AC-1 / AC-3 / AC-4）
+ */
+export type WeekAvailability = Record<string, Record<number, Record<string, Slot>>>;
 
-export async function fetchWeekSlots(
+export async function fetchWeekAvailability(
   mondayStr: string,
-  treatmentMin: number,
   genders: string[],
-): Promise<WeekSlots> {
-  if (!isValidDate(mondayStr) || !isValidTreatment(treatmentMin)) return {};
+): Promise<WeekAvailability> {
+  if (!isValidDate(mondayStr)) return {};
   const normalized = normalizeGenders(genders);
-
   const dates = weekdaysFrom(mondayStr);
+
   const perDay = await Promise.all(
-    dates.map((date) => slotsForDate(date, treatmentMin, normalized)),
+    dates.map(async (date) => {
+      const byTreatment: Record<number, Record<string, Slot>> = {};
+      for (const treatmentMin of TREATMENT_OPTIONS) {
+        const slots = await slotsForDate(date, treatmentMin, normalized);
+        const byTime: Record<string, Slot> = {};
+        for (const slot of slots) byTime[slot.startTime] = slot;
+        byTreatment[treatmentMin] = byTime;
+      }
+      return byTreatment;
+    }),
   );
 
-  const result: WeekSlots = {};
+  const result: WeekAvailability = {};
   dates.forEach((date, i) => {
-    const byTime: Record<string, Slot> = {};
-    for (const slot of perDay[i]) byTime[slot.startTime] = slot;
-    result[date] = byTime;
+    result[date] = perDay[i];
   });
   return result;
 }

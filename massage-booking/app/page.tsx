@@ -8,7 +8,7 @@ export default function Home() {
         <div>
           <h1 className="text-2xl font-bold">マッサージ室の予約</h1>
           <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            空いているマスを選ぶだけ。ベッドと施術者は自動で割り当てます。
+            空いている時間を縦にドラッグするだけ。ベッドと施術者は自動で割り当てます。
           </p>
         </div>
         <Link href="/admin" className="text-sm underline underline-offset-4">
