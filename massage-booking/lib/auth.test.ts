@@ -14,7 +14,7 @@ function memoryJar(): CookieJar {
   };
 }
 
-const SEED_PASSWORD = "password1234";
+const SEED_PASSWORD = "password1234"; // pragma: allowlist secret
 
 test("admin ロールのユーザーは requireRole(['admin']) を通る", async () => {
   const jar = memoryJar();

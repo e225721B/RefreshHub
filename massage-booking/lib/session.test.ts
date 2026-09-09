@@ -17,7 +17,7 @@ function memoryJar(): CookieJar {
 }
 
 const ADMIN_EMAIL = "admin@example.com";
-const SEED_PASSWORD = "password1234";
+const SEED_PASSWORD = "password1234"; // pragma: allowlist secret
 
 test("正しいメールアドレス・パスワードでログインできる", async () => {
   const jar = memoryJar();

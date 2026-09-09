@@ -11,7 +11,7 @@ import { timeOfDay } from "../lib/business-hours";
 
 const prisma = new PrismaClient();
 
-const SEED_PASSWORD = "password1234";
+const SEED_PASSWORD = "password1234"; // pragma: allowlist secret
 
 const ADMIN = { id: "u-admin", name: "管理者", email: "admin@example.com" };
 
