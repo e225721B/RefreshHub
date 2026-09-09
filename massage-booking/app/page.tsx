@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { MyUpcomingReservations } from "./MyUpcomingReservations";
 import { TopNav } from "./TopNav";
 import { WeekSchedule } from "./WeekSchedule";
 
@@ -17,8 +18,10 @@ export default async function Home({
 
   return (
     <>
-      <TopNav user={user} active="booking" />
+      <TopNav user={user} />
       <main className="mx-auto max-w-5xl px-6 py-10">
+        <MyUpcomingReservations />
+
         <header className="mb-8 flex flex-wrap items-baseline justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold">マッサージ室の予約</h1>
