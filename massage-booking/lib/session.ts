@@ -23,7 +23,7 @@ export type SessionUser = {
   role: string;
 };
 
-export type LoginResult = { ok: true } | { ok: false; message: string };
+export type LoginResult = { ok: true; user: SessionUser } | { ok: false; message: string };
 
 /** メールアドレス + パスワードでログインする（AC-16） */
 export async function login(jar: CookieJar, email: string, password: string): Promise<LoginResult> {
@@ -32,7 +32,8 @@ export async function login(jar: CookieJar, email: string, password: string): Pr
     return { ok: false, message: "メールアドレスまたはパスワードが正しくありません" };
   }
   jar.set(SESSION_COOKIE, user.id);
-  return { ok: true };
+  // ログイン直後の行き先を role で変えるため（管理者は管理画面へ）、本人の情報を返す
+  return { ok: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } };
 }
 
 export function logout(jar: CookieJar): void {

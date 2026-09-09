@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { landingFor } from "@/lib/roles";
 import { login as loginUser, logout as logoutUser, nextCookieJar } from "@/lib/session";
 
 export type LoginState = { error: string | null };
@@ -29,8 +30,9 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const result = await loginUser(await nextCookieJar(), email, password);
   if (!result.ok) return { error: result.message };
 
-  // 成功したら予約画面へ送る
-  redirect(next);
+  // 管理者は自分で予約を取る立場ではないので、予約画面ではなく管理画面へ送る。
+  // 行き先が指定されている場合（権限の無い画面を開こうとしてログインに飛ばされた等）はそちらを優先する。
+  redirect(next === "/" ? landingFor(result.user.role) : next);
 }
 
 export async function logout() {
