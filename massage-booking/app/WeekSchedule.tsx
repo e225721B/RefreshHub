@@ -171,7 +171,7 @@ export function WeekSchedule() {
       {/* 自分の予約（B-2） */}
       {myReservations.length > 0 && (
         <section className="rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
-          <h2 className="mb-3 text-sm font-semibold">自分の予約</h2>
+          <h2 className="mb-3 text-base font-semibold">自分の予約</h2>
           <ul className="space-y-2">
             {myReservations.map((r) => (
               <li
@@ -193,8 +193,12 @@ export function WeekSchedule() {
         </section>
       )}
 
-      {/* 条件 */}
-      <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
+      {/* 新しい予約。「自分の予約」と見た目が同じにならないよう見出しで区切る */}
+      <section className="space-y-5 border-t border-black/10 pt-5 dark:border-white/15">
+        <h2 className="text-base font-semibold">新しい予約</h2>
+
+        {/* 条件 */}
+        <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
         <fieldset className="flex flex-col gap-1 text-sm">
           <legend className="font-medium">施術者</legend>
           <div className="flex gap-4 py-2">
@@ -415,6 +419,7 @@ export function WeekSchedule() {
       </div>
 
       {loading && <p className="text-center text-sm">空き状況を読み込んでいます…</p>}
+      </section>
     </div>
   );
 }
