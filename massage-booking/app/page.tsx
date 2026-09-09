@@ -1,7 +1,20 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { UserBar } from "./UserBar";
 import { WeekSchedule } from "./WeekSchedule";
 
-export default function Home() {
+export default async function Home({
+  searchParams,
+}: {
+  // Next.js 16 では searchParams は Promise。await が必要。
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  // 未ログインならログイン画面へ。戻り先を渡し、ログイン後にここへ戻す。
+  const user = await getCurrentUser(await nextCookieJar());
+  if (!user) redirect("/login?next=%2F");
+  const { denied } = await searchParams;
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <header className="mb-8 flex flex-wrap items-baseline justify-between gap-3">
@@ -11,10 +24,22 @@ export default function Home() {
             空いている時間を縦にドラッグするだけ。ベッドと施術者は自動で割り当てます。
           </p>
         </div>
-        <Link href="/admin" className="text-sm underline underline-offset-4">
-          管理者向け: 予約状況を見る
-        </Link>
+        <div className="flex flex-wrap items-center gap-4">
+          {user.role === "admin" && (
+            <Link href="/admin" className="text-sm underline underline-offset-4">
+              管理者向け: 予約状況を見る
+            </Link>
+          )}
+          <UserBar user={user} />
+        </div>
       </header>
+
+      {denied === "admin" && (
+        <p className="mb-6 rounded border border-red-600/30 bg-red-600/10 px-4 py-3 text-sm text-red-800 dark:text-red-300">
+          予約状況の画面は管理者だけが開けます。
+        </p>
+      )}
+
       <WeekSchedule />
     </main>
   );
