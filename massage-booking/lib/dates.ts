@@ -62,3 +62,19 @@ export function formatWeekLabel(mondayStr: string): string {
 export function isPast(dateStr: string): boolean {
   return dateStr < todayString();
 }
+
+/**
+ * "2026-09-08" + "09:00" -> Date（ローカル時刻。全時刻を JST 固定で扱う想定。design.md 参照）
+ * Reservation / TherapistAbsence の startAt / endAt を組み立てるときに使う。
+ */
+export function toDateTime(dateStr: string, hhmm: string): Date {
+  const [h, m] = hhmm.split(":").map(Number);
+  const d = fromDateString(dateStr);
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+
+/** Date -> "09:00"（ローカル時刻の時分。toDateTime の逆変換） */
+export function hhmmOfLocal(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}

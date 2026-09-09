@@ -1,6 +1,9 @@
 // 空き枠の計算。この設計の心臓部。
 // 画面から切り離してここに置くのは、自動テストで正しさを確かめるため。
 
+import { fromDateString, hhmmOfLocal, toDateString } from "@/lib/dates";
+import { DEFAULT_WORK_DAYS, DEFAULT_WORK_WINDOWS, hhmmOfTimeOfDay } from "@/lib/business-hours";
+
 /** 押さえる枠 = 施術時間 + 清掃・準備の 15 分 */
 export const CLEANUP_MIN = 15;
 
@@ -166,4 +169,97 @@ export function isStillAvailable(params: {
       (r.bedId === params.bedId || r.therapistId === params.therapistId) &&
       overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
   );
+}
+
+// ---------------------------------------------------------------------------
+// F-9: その日のシフト（勤務時間帯）を、Therapist の基本パターン + 例外から組み立てる。
+// 「シフトを日付ごとに手入力する」のをやめ、
+//   - 既定（lib/business-hours.ts。平日 9:00〜14:00・15:00〜20:00）
+//   - その人だけ既定と違う場合の TherapistWorkHours（曜日ごとの例外）
+//   - 急な欠勤の TherapistAbsence（重なる分だけ勤務時間から取り除く）
+// から計算する（design.md の設計上の判断を参照）。
+// ---------------------------------------------------------------------------
+
+export type TherapistWorkHoursRow = {
+  therapistId: string;
+  dayOfWeek: number; // 0(日)〜6(土)
+  startAt: Date; // 時刻だけ使う（lib/business-hours.ts の timeOfDay 形式）
+  endAt: Date;
+};
+
+export type TherapistAbsenceWindow = {
+  therapistId: string;
+  startAt: Date; // 実際の日時
+  endAt: Date;
+};
+
+export type ActiveTherapist = { id: string };
+
+/** 開始・終了（分）の範囲から、重なる欠勤ぶんを取り除いた残りの範囲を返す */
+function subtractAbsences(
+  date: string,
+  window: { startTime: string; endTime: string },
+  absences: TherapistAbsenceWindow[],
+): { startTime: string; endTime: string }[] {
+  let pieces = [{ start: toMinutes(window.startTime), end: toMinutes(window.endTime) }];
+
+  for (const absence of absences) {
+    // 日をまたぐ欠勤は今回は考えない。開始日がこの日と一致するものだけを見る。
+    if (toDateString(absence.startAt) !== date) continue;
+    const aStart = toMinutes(hhmmOfLocal(absence.startAt));
+    const aEnd = toMinutes(hhmmOfLocal(absence.endAt));
+
+    const next: { start: number; end: number }[] = [];
+    for (const p of pieces) {
+      if (aEnd <= p.start || aStart >= p.end) {
+        next.push(p); // 重ならない
+        continue;
+      }
+      if (aStart > p.start) next.push({ start: p.start, end: Math.min(aStart, p.end) });
+      if (aEnd < p.end) next.push({ start: Math.max(aEnd, p.start), end: p.end });
+    }
+    pieces = next.filter((p) => p.end > p.start);
+  }
+
+  return pieces.map((p) => ({ startTime: toHHMM(p.start), endTime: toHHMM(p.end) }));
+}
+
+/**
+ * 指定した日の「候補となるシフト（勤務時間帯）」を組み立てる。
+ * getAvailableSlots にそのまま渡せる Shift[] の形で返す。
+ *
+ * - その人の TherapistWorkHours にこの曜日の行があれば、その行だけを使う（既定は見ない）
+ * - 無ければ既定（DEFAULT_WORK_DAYS / DEFAULT_WORK_WINDOWS）を使う
+ * - 重なる TherapistAbsence があれば、その分だけ勤務時間から取り除く
+ */
+export function resolveShiftsForDate(params: {
+  date: string; // "2026-09-08"
+  therapists: ActiveTherapist[];
+  workHours: TherapistWorkHoursRow[];
+  absences: TherapistAbsenceWindow[];
+}): Shift[] {
+  const { date, therapists, workHours, absences } = params;
+  const dayOfWeek = fromDateString(date).getDay();
+  const shifts: Shift[] = [];
+
+  for (const therapist of therapists) {
+    const overrides = workHours.filter((w) => w.therapistId === therapist.id);
+    const windows: { startTime: string; endTime: string }[] =
+      overrides.length > 0
+        ? overrides
+            .filter((w) => w.dayOfWeek === dayOfWeek)
+            .map((w) => ({ startTime: hhmmOfTimeOfDay(w.startAt), endTime: hhmmOfTimeOfDay(w.endAt) }))
+        : DEFAULT_WORK_DAYS.includes(dayOfWeek)
+          ? [...DEFAULT_WORK_WINDOWS]
+          : [];
+
+    const therapistAbsences = absences.filter((a) => a.therapistId === therapist.id);
+    for (const window of windows) {
+      for (const piece of subtractAbsences(date, window, therapistAbsences)) {
+        shifts.push({ therapistId: therapist.id, startTime: piece.startTime, endTime: piece.endTime });
+      }
+    }
+  }
+
+  return shifts;
 }

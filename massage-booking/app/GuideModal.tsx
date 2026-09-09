@@ -51,7 +51,7 @@ export function GuideModal() {
               </div>
               <div>
                 <dt className="font-semibold">利用できる時間</dt>
-                <dd>9:00〜14:00 と 15:00〜19:00（14:00〜15:00 は休憩）</dd>
+                <dd>9:00〜14:00 と 15:00〜20:00（14:00〜15:00 は休憩）</dd>
               </div>
               <div>
                 <dt className="font-semibold">場所とベッド</dt>

@@ -2,12 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { weekdaysFrom } from "@/lib/dates";
+import { hhmmOfLocal, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
   TREATMENT_OPTIONS,
   getAvailableSlots,
   isStillAvailable,
+  resolveShiftsForDate,
   toHHMM,
   toMinutes,
   type Gender,
@@ -29,19 +30,47 @@ function normalizeGenders(genders: string[] | undefined): Gender[] {
   return genders.filter((g): g is Gender => g === "female" || g === "male");
 }
 
+/** その日の 00:00 〜 翌日 00:00（ローカル時刻） */
+function dayRange(date: string): { start: Date; end: Date } {
+  const start = toDateTime(date, "00:00");
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
 /** 1 日ぶんの空き枠を返す */
 async function slotsForDate(
   date: string,
   treatmentMin: number,
   genders: Gender[],
 ): Promise<Slot[]> {
-  const [shifts, beds, therapists, reservations] = await Promise.all([
-    prisma.shift.findMany({ where: { date } }),
-    prisma.bed.findMany({ orderBy: { id: "asc" } }),
-    prisma.therapist.findMany(),
-    prisma.reservation.findMany({ where: { date } }),
+  const { start, end } = dayRange(date);
+  const [therapists, workHours, absences, beds, reservations] = await Promise.all([
+    prisma.therapist.findMany({ where: { active: true }, include: { user: true } }),
+    prisma.therapistWorkHours.findMany(),
+    prisma.therapistAbsence.findMany(),
+    prisma.bed.findMany({ where: { active: true }, orderBy: { id: "asc" } }),
+    prisma.reservation.findMany({
+      where: { status: "booked", startAt: { gte: start, lt: end } },
+    }),
   ]);
-  return getAvailableSlots({ shifts, beds, therapists, reservations, treatmentMin, genders });
+
+  const shifts = resolveShiftsForDate({ date, therapists, workHours, absences });
+  const reservationWindows = reservations.map((r) => ({
+    bedId: r.bedId,
+    therapistId: r.therapistId,
+    startTime: hhmmOfLocal(r.startAt),
+    blockEndTime: hhmmOfLocal(r.endAt),
+  }));
+
+  return getAvailableSlots({
+    shifts,
+    beds,
+    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.gender })),
+    reservations: reservationWindows,
+    treatmentMin,
+    genders,
+  });
 }
 
 /**
@@ -84,32 +113,48 @@ export type ReserveResult =
   | { ok: true; message: string }
   | { ok: false; message: string };
 
-/** 予約を保存する（AC-2） */
+/**
+ * 予約を保存する（AC-2）。
+ *
+ * 暫定: ログイン機能（A-1）が入るまでの橋渡しとして、利用者は userId を直接指定する
+ * （画面側は listActiveUsersForBooking() の一覧から選ぶ）。
+ * ログインが入ったら B-1 で「ログイン中のユーザーで予約する」に置き換える。
+ */
 export async function createReservation(input: {
-  userName: string;
+  userId: string;
   date: string;
   startTime: string;
   treatmentMin: number;
   bedId: string;
   therapistId: string;
 }): Promise<ReserveResult> {
-  const userName = input.userName.trim();
-  if (!userName) return { ok: false, message: "お名前を入力してください" };
-  if (userName.length > 50) return { ok: false, message: "お名前が長すぎます" };
+  if (!input.userId) return { ok: false, message: "利用者を選んでください" };
   if (!isValidDate(input.date)) return { ok: false, message: "日付が正しくありません" };
   if (!isValidTime(input.startTime)) return { ok: false, message: "時刻が正しくありません" };
   if (!isValidTreatment(input.treatmentMin)) {
     return { ok: false, message: "施術時間が正しくありません" };
   }
 
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  if (!user || !user.active) return { ok: false, message: "利用者が見つかりません" };
+
   const blockEndTime = toHHMM(toMinutes(input.startTime) + input.treatmentMin + CLEANUP_MIN);
 
   // 一覧を見てから予約するまでの間に、他の人が同じ枠を取っている可能性がある。
   // 保存の直前にもう一度確かめる。
-  const reservations = await prisma.reservation.findMany({ where: { date: input.date } });
+  const { start, end } = dayRange(input.date);
+  const reservations = await prisma.reservation.findMany({
+    where: { status: "booked", startAt: { gte: start, lt: end } },
+  });
+  const reservationWindows = reservations.map((r) => ({
+    bedId: r.bedId,
+    therapistId: r.therapistId,
+    startTime: hhmmOfLocal(r.startAt),
+    blockEndTime: hhmmOfLocal(r.endAt),
+  }));
   if (
     !isStillAvailable({
-      reservations,
+      reservations: reservationWindows,
       bedId: input.bedId,
       therapistId: input.therapistId,
       startTime: input.startTime,
@@ -121,13 +166,12 @@ export async function createReservation(input: {
 
   await prisma.reservation.create({
     data: {
-      userName,
-      date: input.date,
-      startTime: input.startTime,
-      treatmentMin: input.treatmentMin,
-      blockEndTime,
+      userId: input.userId,
       bedId: input.bedId,
       therapistId: input.therapistId,
+      startAt: toDateTime(input.date, input.startTime),
+      treatmentMin: input.treatmentMin,
+      endAt: toDateTime(input.date, blockEndTime),
     },
   });
 
@@ -137,4 +181,17 @@ export async function createReservation(input: {
     ok: true,
     message: `${input.date} ${input.startTime}〜${blockEndTime} に予約しました（施術 ${input.treatmentMin} 分）`,
   };
+}
+
+/**
+ * 暫定: ログイン機能（A-1）が入るまでの橋渡し。
+ * 本来は getCurrentUser()（lib/session.ts）でログイン中の利用者を使う。
+ * それまでの間、予約画面から利用者を選べるようにするための一覧。
+ */
+export async function listActiveUsersForBooking(): Promise<{ id: string; name: string }[]> {
+  const users = await prisma.user.findMany({
+    where: { active: true, role: "user" },
+    orderBy: { name: "asc" },
+  });
+  return users.map((u) => ({ id: u.id, name: u.name }));
 }

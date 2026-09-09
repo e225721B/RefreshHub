@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getAvailableSlots, isStillAvailable, toHHMM, toMinutes } from "./slots";
+import { getAvailableSlots, isStillAvailable, resolveShiftsForDate, toHHMM, toMinutes } from "./slots";
+import { timeOfDay } from "./business-hours";
+import { toDateTime } from "./dates";
 
 const beds = [
   { id: "b1", name: "ベッド A" },
@@ -221,4 +223,88 @@ test("チェックが空なら絞り込みなしとして扱う", () => {
     genders: [],
   });
   assert.equal(slots.length, 1);
+});
+
+// --- F-9: resolveShiftsForDate（基本パターン + 例外からシフトを組み立てる） ---
+
+const WED = "2026-09-09"; // 水曜日
+const SAT = "2026-09-12"; // 土曜日
+
+test("例外が無ければ、平日は既定の勤務時間（9:00〜14:00 / 15:00〜20:00）が使われる", () => {
+  const shifts = resolveShiftsForDate({
+    date: WED,
+    therapists: [{ id: "t1" }],
+    workHours: [],
+    absences: [],
+  });
+  assert.deepEqual(shifts, [
+    { therapistId: "t1", startTime: "09:00", endTime: "14:00" },
+    { therapistId: "t1", startTime: "15:00", endTime: "20:00" },
+  ]);
+});
+
+test("例外が無ければ、土日は既定の出勤日ではないのでシフトが無い", () => {
+  const shifts = resolveShiftsForDate({
+    date: SAT,
+    therapists: [{ id: "t1" }],
+    workHours: [],
+    absences: [],
+  });
+  assert.deepEqual(shifts, []);
+});
+
+test("個別の例外（午前のみ）があれば、既定ではなくその行だけが使われる", () => {
+  const shifts = resolveShiftsForDate({
+    date: WED,
+    therapists: [{ id: "t1" }],
+    workHours: [
+      { therapistId: "t1", dayOfWeek: 3, startAt: timeOfDay("09:00"), endAt: timeOfDay("14:00") },
+    ],
+    absences: [],
+  });
+  assert.deepEqual(shifts, [{ therapistId: "t1", startTime: "09:00", endTime: "14:00" }]);
+});
+
+test("例外を持つ人は、行の無い曜日には既定も使われずシフトが無い", () => {
+  const shifts = resolveShiftsForDate({
+    date: WED, // dayOfWeek = 3
+    therapists: [{ id: "t1" }],
+    workHours: [
+      // 月曜（dayOfWeek = 1）の行しか無い
+      { therapistId: "t1", dayOfWeek: 1, startAt: timeOfDay("09:00"), endAt: timeOfDay("14:00") },
+    ],
+    absences: [],
+  });
+  assert.deepEqual(shifts, []);
+});
+
+test("欠勤が重なる分だけ勤務時間から取り除かれる", () => {
+  const shifts = resolveShiftsForDate({
+    date: WED,
+    therapists: [{ id: "t1" }],
+    workHours: [],
+    absences: [
+      { therapistId: "t1", startAt: toDateTime(WED, "09:00"), endAt: toDateTime(WED, "09:30") },
+    ],
+  });
+  assert.deepEqual(shifts, [
+    { therapistId: "t1", startTime: "09:30", endTime: "14:00" },
+    { therapistId: "t1", startTime: "15:00", endTime: "20:00" },
+  ]);
+});
+
+test("別の日の欠勤は影響しない", () => {
+  const shifts = resolveShiftsForDate({
+    date: WED,
+    therapists: [{ id: "t1" }],
+    workHours: [],
+    absences: [
+      // 前日の欠勤
+      { therapistId: "t1", startAt: toDateTime("2026-09-08", "09:00"), endAt: toDateTime("2026-09-08", "14:00") },
+    ],
+  });
+  assert.deepEqual(shifts, [
+    { therapistId: "t1", startTime: "09:00", endTime: "14:00" },
+    { therapistId: "t1", startTime: "15:00", endTime: "20:00" },
+  ]);
 });
