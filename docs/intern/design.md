@@ -321,7 +321,7 @@ PoC の 1 時間では画面確認を優先する。自動テストは空き枠�
 | マッサージ師 | AC-15 | 自分の予約状況を見る | **新規** |
 | 管理者 | AC-6 / AC-7 | 集計（ユニーク利用者数・時間帯別・ベッド別） | **新規** |
 | 管理者 | AC-8 | 予約状況（ベッド × 時間） | 実装済み（キャンセル機能を追加） |
-| 管理者 | AC-9 | シフト調整（**管理者のみ**） | **新規** |
+| 管理者 | AC-9 | 基本勤務パターン + 欠勤管理（**管理者のみ**） | **新規** |
 | 管理者 | AC-10 | ベッド数の管理 | **新規** |
 | 通知 | AC-11 / AC-12 | 予約確定時・15 分前の通知 | **新規（疑似送信）** |
 | 認証 | AC-16 / AC-17 | ログイン / ユーザー管理 | **新規** |
@@ -348,7 +348,7 @@ PoC の 1 時間では画面確認を優先する。自動テストは空き枠�
 | 3 | マッサージ師: 自分の予約状況 | `/therapist` | マッサージ師 | AC-15 |
 | 4 | 管理者: 予約状況（ベッド × 時間） | `/admin` | 管理者 | AC-8 / AC-13 |
 | 5 | 管理者: 集計 | `/admin/stats` | 管理者 | AC-6 / AC-7 |
-| 6 | 管理者: シフト調整 | `/admin/shifts` | 管理者 | AC-9 |
+| 6 | 管理者: 勤務パターン + 欠勤管理 | `/admin/shifts` | 管理者 | AC-9 |
 | 7 | 管理者: ユーザー管理（**アカウント登録**・権限変更・パスワード再設定・無効化） | `/admin/users` | 管理者 | AC-17 |
 | 8 | 管理者: ベッド管理 | `/admin/beds` | 管理者 | AC-10 |
 | 9 | 管理者: 通知の記録 | `/admin/notifications` | 管理者 | AC-11 / AC-12 |
@@ -388,7 +388,7 @@ flowchart TD
 
   L --> A["/admin<br/>予約状況<br/>ベッド × 時間<br/>AC-8 / 管理者キャンセル AC-13"]
   A --> A2["/admin/stats<br/>集計<br/>AC-6 / AC-7"]
-  A --> A3["/admin/shifts<br/>シフト調整<br/>AC-9"]
+  A --> A3["/admin/shifts<br/>基本勤務パターン + 欠勤登録<br/>AC-9"]
   A --> A4["/admin/users<br/>ユーザー管理<br/>AC-17"]
   A --> A5["/admin/beds<br/>ベッド数の管理<br/>AC-10"]
   A --> A6["/admin/notifications<br/>通知の記録<br/>AC-11 / AC-12"]
@@ -420,6 +420,8 @@ flowchart TD
 ## データ構造（第 2 版）
 
 第 1 版の 4 テーブルに **User / Notification を追加**し、Reservation にキャンセル用の列を足す。
+**さらに `Shift`（日付ごとの手入力シフト）を廃止し、`Therapist` に基本の勤務パターン（曜日・午前午後の時間帯）を持たせた上で、
+例外だけを `TherapistAbsence`（休む日時）に記録する形へ変更した**（詳細は後述の「設計上の判断」）。
 
 図の正本は `diagrams/er-v2.mmd`。再生成方法はこのファイルの末尾。
 
@@ -429,7 +431,8 @@ flowchart TD
 erDiagram
   USER ||--o{ RESERVATION : "予約する"
   USER ||--o| THERAPIST : "マッサージ師である"
-  THERAPIST ||--o{ SHIFT : "勤務する"
+  THERAPIST ||--o{ THERAPIST_ABSENCE : "休む"
+  THERAPIST ||--o{ THERAPIST_WORK_HOURS : "既定と違う曜日・時間で働く"
   THERAPIST ||--o{ RESERVATION : "施術する"
   BED ||--o{ RESERVATION : "使われる"
   USER ||--o{ NOTIFICATION : "宛先になる"
@@ -445,8 +448,7 @@ erDiagram
   }
   THERAPIST {
     string id "t1..."
-    string userId "USER.id（ログインする場合）"
-    string name "表示名"
+    string userId "USER.id（必須。表示名は User.name を使うので name は持たない）"
     string gender "male / female"
     boolean active "退職・休職に使う"
   }
@@ -455,22 +457,29 @@ erDiagram
     string name "ベッド A / B / C"
     boolean active "台数変更に使う"
   }
-  SHIFT {
-    string id "sh1..."
+  THERAPIST_ABSENCE {
+    string id "ta1..."
     string therapistId "THERAPIST.id"
-    string date "2026-09-08"
-    string startTime "09:00"
-    string endTime "14:00"
+    datetime startAt "休む開始日時 2026-09-10 09:00"
+    datetime endAt "休む終了日時 2026-09-10 14:00"
+    string reason "任意。体調不良 など"
+    string createdById "USER.id（登録した管理者）"
+  }
+  THERAPIST_WORK_HOURS {
+    string id "tw1..."
+    string therapistId "THERAPIST.id"
+    int dayOfWeek "0(日)〜6(土)。この曜日 1 日ぶんの勤務を表す"
+    datetime startAt "その曜日の勤務開始（時刻だけ使う。例 1970-01-01T09:00）"
+    datetime endAt "その曜日の勤務終了（時刻だけ使う）"
   }
   RESERVATION {
     string id "r1..."
     string userId "USER.id（誰が受けるか）"
     string bedId "BED.id"
     string therapistId "THERAPIST.id"
-    string date "2026-09-08"
-    string startTime "09:00 施術開始"
+    datetime startAt "施術開始日時 2026-09-08 09:00"
     int treatmentMin "15 / 30 / 45"
-    string blockEndTime "施術 + 15 分の枠終了"
+    datetime endAt "施術 + 15 分の枠終了日時"
     string status "booked / cancelled"
     string note "備考（任意）"
     string cancelledById "USER.id（誰が取り消したか）"
@@ -484,8 +493,8 @@ erDiagram
     string channel "email / slack"
     string subject "件名"
     string body "本文"
-    string scheduledAt "送る予定の日時"
-    string sentAt "疑似送信した日時"
+    datetime scheduledAt "送る予定の日時"
+    datetime sentAt "疑似送信した日時（未送信は null）"
   }
 ~~~
 
@@ -493,11 +502,16 @@ erDiagram
 
 | 判断 | 内容 | 理由 |
 |---|---|---|
-| **Therapist を User に統合しない** | User を新設し、Therapist は `userId` で紐づける（任意） | 統合すると既存の `lib/slots.ts` と `app/actions.ts` を全面的に書き換えることになり、**3 人の並行作業の起点で大きな衝突が起きる**。分けておけば空き枠計算のコードはほぼそのまま使える |
+| **Therapist を User に統合しない（ただし `userId` は必須）** | User を新設し、Therapist は `userId` で紐づける。**すべてのマッサージ師がログインする（AC-16）ため、この紐づけは必須**とし、`Therapist.name` は持たない | 統合すると既存の `lib/slots.ts` と `app/actions.ts` を全面的に書き換えることになり、**3 人の並行作業の起点で大きな衝突が起きる**。分けておけば空き枠計算のコードはほぼそのまま使える。表示名は `User.name` に一本化し、**同じ情報を 2 か所に持たない** |
 | **Reservation は物理削除しない** | `status` を `cancelled` にする | **キャンセルも利用実績のデータ**。「予約したが直前に取り消す人が多い」なども AC-6 / AC-7 で見えるようにするため |
 | **`active` フラグを持つ** | Bed / Therapist / User | ベッドを減らす・マッサージ師が辞めるときに**過去の予約が壊れない**。削除すると実績が消える |
 | **Notification は予約時にまとめて作る** | 確定通知は `sentAt` 即時、15 分前通知は `scheduledAt` のみ入れて未送信で置く | D-2。実送信しないので「送信予定の一覧」が見えれば設計の妥当性は示せる |
 | **`userName` を `userId` に置き換える** | 既存の Reservation.userName は廃止 | **AC-6 のユニーク利用者数を数えるため**。名前の手入力では表記ゆれで数えられない |
+| **`Shift`（日付ごとの手入力シフト）を廃止し、基本パターン + 例外に変える** | `Therapist` 自体は曜日・時間を一切持たない。**急な欠勤は `TherapistAbsence`、既定と違う曜日・時間は `TherapistWorkHours` に記録する** | 要件ヒアリングの実態が「シフトは無く、固定時間で運営し、休む人が出た時だけ調整する」（requirements.md）だった。日付ごとの SHIFT レコードを管理者が用意し続ける運用は実態と合わず、持続しない |
+| **基本の出勤曜日・時間（平日 9:00〜14:00・15:00〜20:00）は DB に持たない。個人ごとの例外は `TherapistWorkHours` に**曜日と時間**をまとめて持つ** | ほとんどのマッサージ師は共通の固定値なので `lib/business-hours.ts` の定数（曜日 + 時間）で持ち、`Therapist` は曜日を持たない。**「午前中しか働けない」など既定と違う人だけ**、`TherapistWorkHours` に「何曜日の・何時から何時まで」を 1 行 = 1 曜日ぶんとして登録する（複数曜日・複数ブロックなら複数行）。**判定ルールはシンプルに: その人の行が 1 件でもあればそれだけを使い、既定は見ない。行が無ければ既定の曜日・時間をそのまま使う** | 全員共通の値をテーブルに重複して持たせたくない一方、**実際に「午前のみ」のような例外が存在する**ため、例外だけを別テーブルに記録する形にした。`TherapistAbsence`（急な休み）と同じ「例外だけ記録する」考え方。**曜日と時間を別々の場所（`Therapist.workDays` と時間の列）に分けて持つと、テーブルを増やした意味が薄れる**ため、例外用のテーブルを増やすなら曜日もそこにまとめた |
+| **欠勤登録は予約の自動キャンセルとセット** | `TherapistAbsence` を作成する際、その時間帯に重なる `status = "booked"` の予約を `cancelled` にし（`cancelledById` は登録した管理者）、対象の利用者へ通知（`Notification`）を作る | 欠勤が起きた時点で該当利用者が「予約が生きているのに担当が来ない」状態にならないようにする。AC-13（キャンセル）と D-2（通知）の仕組みをそのまま流用できる |
+| **日付と時刻は分けず、まとめて `DateTime` で持つ** | `Reservation` / `TherapistAbsence` は「日付」＋「時刻」を別カラムにせず、**`startAt` / `endAt`（DateTime）1 本ずつ**にする（例: `startAt = 2026-09-08T09:00`）。`Notification.scheduledAt` / `sentAt` も同様に **DateTime**。週表示に使う「何月何日か」は `startAt` から日付部分を取り出して求める | `"09:00"` のような文字列は大小比較・重なり判定のたびに parse が要り、`"9:00"` などの表記ゆれも起こりうる。**日付と時刻を 2 カラムに分けると、片方だけ更新してズレる事故が起きうる**。1 本の `DateTime` にすれば比較・並べ替え・重なり判定（`startAt < 相手の endAt && endAt > 相手の startAt`）がすべて DB 側で完結し、ズレも起きない。**注意点**: 社内のみで使う想定のため**全時刻を JST 固定で扱う**（タイムゾーン変換はしない）。日時を組み立てる関数を 1 か所にまとめ、各所でバラバラに `new Date()` しない |
+| **`TherapistWorkHours` の `startAt` / `endAt` は日付部分を使わない** | `Reservation` / `TherapistAbsence` の `startAt`・`endAt` が**特定の日の予定時刻**なのに対し、`TherapistWorkHours` は「毎週この曜日はこの時間」という**繰り返しのルール**であり、特定の日付を持たない。SQLite / Prisma に時刻専用の型が無いため、**日付部分はダミー値（例: `1970-01-01`）とし、時刻部分だけを使う**。どの曜日のルールかは同じ行の `dayOfWeek` で持つ | 型を `DateTime` に揃えたい一方、繰り返しルールには「日付」が存在しない。`Reservation` などと**同じ型を使うが、意味は違う**ことをコメントで明示しておかないと、実装時に日付部分を誤って比較に使ってしまう事故が起きる |
 
 ## Server Actions（第 2 版）
 
@@ -511,7 +525,7 @@ erDiagram
 | `app/actions/therapist.ts` | `listMyAssignments` | AC-15 | B |
 | `app/actions/admin.ts` | `getDaySchedule` / `cancelByAdmin` | AC-8 / AC-13 | C |
 | `app/actions/stats.ts` | `getStats`（期間 → ユニーク利用者数・時間帯別・ベッド別） | AC-6 / AC-7 | C |
-| `app/actions/shifts.ts` | `listShifts` / `upsertShift` / `deleteShift` | AC-9 | C |
+| `app/actions/shifts.ts` | `getWorkPattern`（そのセラピストの `TherapistWorkHours` があればそれを、無ければ `lib/business-hours.ts` の既定の曜日・時間を返す） / `setWorkHours`（**例外の曜日・時間を登録・変更・削除**。「午前のみ」など） / `listAbsences` / `createAbsence`（**重なる予約があれば自動キャンセルし通知を作る**） / `deleteAbsence` | AC-9 / AC-13 | C |
 | `app/actions/beds.ts` | `listBeds` / `createBed` / `updateBed` / `deactivateBed` | AC-10 | C |
 | `lib/notify.ts` | `enqueueNotification`（疑似送信） | AC-11 / AC-12 | A |
 | `lib/slots.ts` | 空き枠計算（**既存。原則さわらない**） | AC-1 | 共通 |
@@ -562,6 +576,7 @@ Git はブランチを分ける（例 `feat/auth` `feat/booking` `feat/admin`）
 | # | 内容 | 扱い |
 |---|---|---|
 | **Q-8 との食い違い** | シフトの入力者を「マッサージ師」から「管理者のみ」へ変更した | requirements.md に記録済み。**メンター／管理者に確認する** |
+| **午後の終了時刻のずれ** | 基本勤務パターンを平日 9:00〜14:00・**15:00〜20:00** としたが、ヒアリング記録（requirements.md）は午後を **15:00〜19:00** としている | 実装前に学生・メンターへ確認する（implement_plan.md の Q-D） |
 | **700 人のアカウント登録** | 実運用で管理者が 700 人ぶんを手入力するのは不可能 | PoC では管理画面からの手動登録のみ。**本番は社内アカウント DB と連携し、メールアドレスのみで認証する**方針（D-1） |
 | **パスワードの扱い** | **今回の実装の都合であり、本番で採用する方式ではない** | 上記のとおり本番は社内 DB 連携。発表で問われたらこの一文で答える |
 | なりすまし | セッションが簡易なため、Cookie を書き換えれば他人になりすませる | PoC として受け入れる。本番には正式なセッション管理が必要 |

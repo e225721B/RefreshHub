@@ -2,7 +2,8 @@ erDiagram
   USER ||--o{ RESERVATION : "予約する"
   USER ||--o| THERAPIST : "マッサージ師である"
   USER ||--o{ NOTIFICATION : "宛先になる"
-  THERAPIST ||--o{ SHIFT : "勤務する"
+  THERAPIST ||--o{ THERAPIST_ABSENCE : "休む"
+  THERAPIST ||--o{ THERAPIST_WORK_HOURS : "既定と違う曜日・時間で働く"
   THERAPIST ||--o{ RESERVATION : "施術する"
   BED ||--o{ RESERVATION : "使われる"
   RESERVATION ||--o{ NOTIFICATION : "きっかけになる"
@@ -17,8 +18,7 @@ erDiagram
   }
   THERAPIST {
     string id "t1..."
-    string userId "USER.id（ログインする場合）"
-    string name "表示名"
+    string userId "USER.id（必須。表示名は User.name を使うので name は持たない）"
     string gender "male / female"
     boolean active "退職・休職に使う"
   }
@@ -27,22 +27,29 @@ erDiagram
     string name "ベッド A / B / C"
     boolean active "台数変更に使う"
   }
-  SHIFT {
-    string id "sh1..."
+  THERAPIST_ABSENCE {
+    string id "ta1..."
     string therapistId "THERAPIST.id"
-    string date "2026-09-08"
-    string startTime "09:00"
-    string endTime "14:00"
+    datetime startAt "休む開始日時 2026-09-10 09:00"
+    datetime endAt "休む終了日時 2026-09-10 14:00"
+    string reason "任意。体調不良 など"
+    string createdById "USER.id（登録した管理者）"
+  }
+  THERAPIST_WORK_HOURS {
+    string id "tw1..."
+    string therapistId "THERAPIST.id"
+    int dayOfWeek "0(日)〜6(土)。この曜日 1 日ぶんの勤務を表す"
+    datetime startAt "その曜日の勤務開始（時刻だけ使う。例 1970-01-01T09:00）"
+    datetime endAt "その曜日の勤務終了（時刻だけ使う）"
   }
   RESERVATION {
     string id "r1..."
     string userId "USER.id（誰が受けるか）"
     string bedId "BED.id"
     string therapistId "THERAPIST.id"
-    string date "2026-09-08"
-    string startTime "09:00 施術開始"
+    datetime startAt "施術開始日時 2026-09-08 09:00"
     int treatmentMin "15 / 30 / 45"
-    string blockEndTime "施術 + 15 分の枠終了"
+    datetime endAt "施術 + 15 分の枠終了日時"
     string status "booked / cancelled"
     string note "備考（任意）"
     string cancelledById "USER.id（誰が取り消したか）"
@@ -56,6 +63,6 @@ erDiagram
     string channel "email / slack"
     string subject "件名"
     string body "本文"
-    string scheduledAt "送る予定の日時"
-    string sentAt "疑似送信した日時"
+    datetime scheduledAt "送る予定の日時"
+    datetime sentAt "疑似送信した日時（未送信は null）"
   }
