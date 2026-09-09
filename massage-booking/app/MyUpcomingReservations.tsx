@@ -3,13 +3,16 @@
 import { startTransition, useEffect, useState } from "react";
 import { cancelReservation, listMyReservations, type MyReservation } from "./actions/booking";
 import { formatShort } from "@/lib/dates";
+import { RESERVATION_UPDATED_EVENT } from "@/lib/events";
+import { FlashToast } from "./FlashToast";
+import { useFlashMessage } from "./useFlashMessage";
 
 /** 「マッサージ室の予約」画面の上段に表示する、自分のこれからの予約（B-2 / B-3）。 */
 export function MyUpcomingReservations() {
   const [reservations, setReservations] = useState<MyReservation[] | null>(null);
   const [target, setTarget] = useState<MyReservation | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const { message, showMessage } = useFlashMessage();
 
   async function load() {
     const all = await listMyReservations();
@@ -22,34 +25,31 @@ export function MyUpcomingReservations() {
     });
   }, []);
 
+  useEffect(() => {
+    const onUpdated = () => startTransition(() => { load(); });
+    window.addEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+  }, []);
+
   async function confirmCancel() {
     if (!target) return;
     setCancelling(true);
     const result = await cancelReservation(target.id);
-    setMessage({ ok: result.ok, text: result.message });
+    showMessage(result.ok, result.message);
     setCancelling(false);
     setTarget(null);
     await load();
   }
 
-  // 読み込み中、またはこれからの予約が無ければ何も出さない（レイアウトが空のまま余白だけ残らないように）。
-  if (!reservations || reservations.length === 0) return null;
+  // 読み込み中、またはこれからの予約が無ければ表は出さない（レイアウトが空のまま余白だけ残らないように）。
+  // ただし直前の操作のフラッシュメッセージ（例: 最後の予約をキャンセルした直後）は出す。
+  if (!reservations || reservations.length === 0) return <FlashToast message={message} />;
 
   return (
-    <section className="mb-8 space-y-3">
-      <h2 className="text-xl font-bold">自分の予約</h2>
+    <section id="my-reservations" className="mb-8 scroll-mt-6 space-y-3">
+      <h2 className="text-2xl font-bold">自分の予約</h2>
 
-      {message && (
-        <p
-          className={`rounded border px-4 py-3 text-sm ${
-            message.ok
-              ? "border-green-600/30 bg-green-600/10 text-green-800 dark:text-green-300"
-              : "border-red-600/30 bg-red-600/10 text-red-800 dark:text-red-300"
-          }`}
-        >
-          {message.text}
-        </p>
-      )}
+      <FlashToast message={message} />
 
       <div className="overflow-x-auto rounded-lg border border-rose-100 dark:border-rose-500/20">
         <table className="w-full min-w-[640px] border-collapse text-sm">

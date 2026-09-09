@@ -125,6 +125,8 @@ export async function createReservation(input: {
   treatmentMin: number;
   bedId: string;
   therapistId: string;
+  /** 任意の備考。50 文字を超える分は切り詰める */
+  note?: string;
 }): Promise<ReserveResult> {
   let user;
   try {
@@ -166,6 +168,8 @@ export async function createReservation(input: {
     return { ok: false, message: "たった今この枠は埋まりました。表を更新します" };
   }
 
+  const note = input.note?.trim().slice(0, 50) || null;
+
   await prisma.reservation.create({
     data: {
       userId: user.id,
@@ -174,6 +178,7 @@ export async function createReservation(input: {
       startAt: toDateTime(input.date, input.startTime),
       treatmentMin: input.treatmentMin,
       endAt: toDateTime(input.date, blockEndTime),
+      note,
     },
   });
 

@@ -42,7 +42,7 @@ export default async function Home({
           </p>
         )}
 
-        <WeekSchedule />
+        <WeekSchedule userName={user.name} />
       </main>
     </>
   );
