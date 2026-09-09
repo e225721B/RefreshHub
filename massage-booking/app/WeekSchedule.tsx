@@ -1,13 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import {
-  createReservation,
-  fetchWeekAvailability,
-  listMyReservations,
-  type MyReservation,
-  type WeekAvailability,
-} from "./actions/booking";
+import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -48,7 +42,6 @@ export function WeekSchedule() {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   const [genders, setGenders] = useState<string[]>(["female", "male"]);
   const [availability, setAvailability] = useState<WeekAvailability>({});
-  const [myReservations, setMyReservations] = useState<MyReservation[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -60,18 +53,11 @@ export function WeekSchedule() {
   const today = todayString();
   const gendersKey = genders.join(",");
 
-  const loadMyReservations = useCallback(async () => {
-    setMyReservations(await listMyReservations());
-  }, []);
-
   const reload = useCallback(async () => {
-    await Promise.all([
-      fetchWeekAvailability(monday, genders).then(setAvailability),
-      loadMyReservations(),
-    ]);
+    setAvailability(await fetchWeekAvailability(monday, genders));
     // gendersKey で依存を表す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monday, gendersKey, loadMyReservations]);
+  }, [monday, gendersKey]);
 
   useEffect(() => {
     startLoading(async () => {
@@ -80,16 +66,7 @@ export function WeekSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
 
-  // 自分の予約一覧は週の切り替えとは無関係なので、最初に 1 回だけ取得する（B-2）。
-  // 予約・キャンセル後は reload() 経由で更新する。
-  useEffect(() => {
-    startLoading(async () => {
-      await loadMyReservations();
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /** その日・その時刻から 15 分の施術を始められるか（＝マスが緑になる条件） */
+  /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
     if (isPast(date)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
@@ -168,37 +145,8 @@ export function WeekSchedule() {
 
   return (
     <div className="space-y-5">
-      {/* 自分の予約（B-2） */}
-      {myReservations.length > 0 && (
-        <section className="rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
-          <h2 className="mb-3 text-base font-semibold">自分の予約</h2>
-          <ul className="space-y-2">
-            {myReservations.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded border border-black/10 bg-background px-3 py-2 text-sm dark:border-white/15"
-              >
-                <span>
-                  {formatShort(r.date)} {r.startTime}〜{r.endTime}
-                  <span className="ml-2 text-black/60 dark:text-white/60">
-                    {r.bedName} / {r.therapistName} / 施術 {r.treatmentMin} 分
-                  </span>
-                  {r.note && (
-                    <span className="ml-2 text-black/60 dark:text-white/60">備考: {r.note}</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* 新しい予約。「自分の予約」と見た目が同じにならないよう見出しで区切る */}
-      <section className="space-y-5 border-t border-black/10 pt-5 dark:border-white/15">
-        <h2 className="text-base font-semibold">新しい予約</h2>
-
-        {/* 条件 */}
-        <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
+      {/* 条件 */}
+      <div className="flex flex-wrap items-end justify-between gap-6 rounded-2xl border border-rose-100 bg-white p-4 shadow-sm dark:border-rose-500/20 dark:bg-white/[.04]">
         <fieldset className="flex flex-col gap-1 text-sm">
           <legend className="font-medium">施術者</legend>
           <div className="flex gap-4 py-2">
@@ -208,7 +156,7 @@ export function WeekSchedule() {
                   type="checkbox"
                   checked={genders.includes(g.value)}
                   onChange={() => toggleGender(g.value)}
-                  className="size-4"
+                  className="size-4 accent-rose-500"
                 />
                 <span>{g.label}</span>
               </label>
@@ -222,7 +170,6 @@ export function WeekSchedule() {
       <p className="text-sm text-black/70 dark:text-white/70">
         <strong>表を縦にドラッグして施術時間を選びます。</strong>
         1 マス = 15 分、最大 3 マス（45 分）まで。
-        清掃・準備の 15 分は自動で足されるため、押さえる枠はドラッグした長さ + 15 分になります。
         ベッドと施術者は自動で割り当てられます。
       </p>
 
@@ -248,7 +195,7 @@ export function WeekSchedule() {
           <div
             className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
               selected.valid
-                ? "border-blue-600/40 bg-blue-500/10"
+                ? "border-rose-400/50 bg-rose-500/10"
                 : "border-red-600/40 bg-red-600/10"
             }`}
           >
@@ -275,7 +222,7 @@ export function WeekSchedule() {
               <button
                 type="button"
                 onClick={() => setSelection(null)}
-                className="rounded border border-black/20 px-3 py-2 dark:border-white/25"
+                className="rounded-full border border-black/20 px-3 py-2 dark:border-white/25"
               >
                 取り消す
               </button>
@@ -283,7 +230,7 @@ export function WeekSchedule() {
                 type="button"
                 disabled={!selected.valid || saving}
                 onClick={confirmReservation}
-                className="rounded bg-foreground px-4 py-2 text-background disabled:opacity-40"
+                className="rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-2 font-semibold text-white shadow-sm disabled:opacity-40"
               >
                 {saving ? "予約しています…" : "この内容で予約する"}
               </button>
@@ -291,7 +238,7 @@ export function WeekSchedule() {
           </div>
         ) : (
           <div className="flex h-full items-center rounded-lg border border-dashed border-black/15 px-4 py-3 text-sm text-black/50 dark:border-white/20 dark:text-white/50">
-            表の緑のマスを縦にドラッグすると、ここに予約内容が出ます。
+            表の空いているマスを縦にドラッグすると、ここに予約内容が出ます。
           </div>
         )}
       </div>
@@ -334,11 +281,11 @@ export function WeekSchedule() {
       {/* 凡例 */}
       <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-black/60 dark:text-white/60">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block size-3 rounded-sm bg-emerald-500/25" />
+          <span className="inline-block size-3 rounded-sm bg-rose-200 dark:bg-rose-400/40" />
           空いている（ドラッグで選ぶ）
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block size-3 rounded-sm bg-blue-500/50" />
+          <span className="inline-block size-3 rounded-sm bg-rose-500" />
           選択中
         </span>
         <span className="flex items-center gap-1.5">
@@ -359,12 +306,12 @@ export function WeekSchedule() {
                 <th
                   key={date}
                   className={`border border-black/10 px-2 py-2 text-center dark:border-white/15 ${
-                    date === today ? "bg-blue-500/10" : ""
+                    date === today ? "bg-rose-500/10" : ""
                   }`}
                 >
                   {formatShort(date)}
                   {date === today && (
-                    <span className="ml-1 text-xs font-normal text-blue-700 dark:text-blue-300">
+                    <span className="ml-1 text-xs font-normal text-rose-600 dark:text-rose-300">
                       今日
                     </span>
                   )}
@@ -386,10 +333,10 @@ export function WeekSchedule() {
                   let tone = "bg-black/15 dark:bg-white/25"; // 空きなし
                   if (inSelection) {
                     tone = selectionValid
-                      ? "bg-blue-500/50"
+                      ? "bg-rose-500"
                       : "bg-red-500/45";
                   } else if (open) {
-                    tone = "bg-emerald-500/10 dark:bg-emerald-400/15 hover:bg-emerald-500/30";
+                    tone = "bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/20 dark:hover:bg-rose-400/35";
                   }
 
                   return (
@@ -419,7 +366,6 @@ export function WeekSchedule() {
       </div>
 
       {loading && <p className="text-center text-sm">空き状況を読み込んでいます…</p>}
-      </section>
     </div>
   );
 }

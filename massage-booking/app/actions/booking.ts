@@ -186,6 +186,8 @@ export async function createReservation(input: {
 }
 
 
+export type MyReservationStatus = "予約済み" | "利用済み" | "キャンセル済み";
+
 export type MyReservation = {
   id: string;
   date: string; // "2026-09-08"
@@ -195,13 +197,16 @@ export type MyReservation = {
   bedName: string;
   therapistName: string;
   note: string | null;
+  status: MyReservationStatus;
+  /** 「これから」に出すか（予約済みで、まだ始まっていない） */
+  isUpcoming: boolean;
   /** 施術開始の 2 時間前を過ぎていたら false（キャンセルボタンを押せなくする） */
   canCancel: boolean;
 };
 
 /**
- * ログイン中の利用者の、これからの予約一覧（B-2）。
- * status = "booked" かつ、まだ始まっていないものだけを返す。
+ * ログイン中の利用者の予約一覧（B-2）。これから・過去・キャンセル済みをすべて含めて返し、
+ * 画面側（自分の予約ページ）で「これから」「過去」のタブに振り分ける。
  * 未ログインなら空配列を返す（画面側は未ログインなら /login にリダイレクト済みのはずだが念のため）。
  */
 export async function listMyReservations(): Promise<MyReservation[]> {
@@ -214,22 +219,32 @@ export async function listMyReservations(): Promise<MyReservation[]> {
   }
 
   const reservations = await prisma.reservation.findMany({
-    where: { userId: user.id, status: "booked", startAt: { gte: new Date() } },
+    where: { userId: user.id },
     include: { bed: true, therapist: { include: { user: true } } },
-    orderBy: { startAt: "asc" },
+    orderBy: { startAt: "desc" },
   });
 
-  return reservations.map((r) => ({
-    id: r.id,
-    date: toDateString(r.startAt),
-    startTime: hhmmOfLocal(r.startAt),
-    endTime: hhmmOfLocal(r.endAt),
-    treatmentMin: r.treatmentMin,
-    bedName: r.bed.name,
-    therapistName: r.therapist.user.name,
-    note: r.note,
-    canCancel: canUserCancel(r.startAt),
-  }));
+  const now = new Date();
+
+  return reservations.map((r) => {
+    const isPast = r.startAt < now;
+    const status: MyReservationStatus =
+      r.status === "cancelled" ? "キャンセル済み" : isPast ? "利用済み" : "予約済み";
+
+    return {
+      id: r.id,
+      date: toDateString(r.startAt),
+      startTime: hhmmOfLocal(r.startAt),
+      endTime: hhmmOfLocal(r.endAt),
+      treatmentMin: r.treatmentMin,
+      bedName: r.bed.name,
+      therapistName: r.therapist.user.name,
+      note: r.note,
+      status,
+      isUpcoming: r.status === "booked" && !isPast,
+      canCancel: r.status === "booked" && !isPast && canUserCancel(r.startAt),
+    };
+  });
 }
 
 export type CancelResult = { ok: true; message: string } | { ok: false; message: string };
