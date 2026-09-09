@@ -1,5 +1,16 @@
 # Design
 
+**この文書は 2 部構成。**
+
+| 版 | 対象 | 状態 |
+|---|---|---|
+| 第 1 版（本文前半） | PoC。画面 2 枚 + モーダル 1 つ、AC-1〜AC-5 / AC-8 | **実装済み** |
+| **第 2 版（後半「フルスコープ設計」）** | 画面 9 枚 + モーダル 2 つ、必須 AC 14 件。3 人で分担 | **これから実装** |
+
+第 1 版は記録として残す。**これから作るものは第 2 版**を読むこと。
+
+---
+
 対象: PoC（1 時間で動くものを作る）。実装期間はインターン残り 2 日。
 制約により、図ごとの確認往復は省略し、テックリードが判断した内容を明示する形で進める。
 
@@ -283,7 +294,7 @@ PoC の 1 時間では画面確認を優先する。自動テストは空き枠�
 | R-2 | 午後に女性マッサージ師がいないのは常にそうか | シフトデータで表現するため設計上の障害にならない |
 | Q-13 | ベッド・マッサージ師の追加変更の頻度 | 低ければ AC-10 は不要のまま。高ければ MVP 後に追加する |
 
-## 設計宣言
+## 設計宣言（第 1 版・PoC）
 
 > **AC-1 / AC-2 / AC-3 / AC-4 / AC-8（時間が許せば AC-5）を、Next.js（App Router）+ TypeScript + SQLite + Prisma で作る。**
 > 画面は **2 枚（`/` 予約画面、`/admin` 予約状況）とモーダル 1 つ**、
@@ -291,4 +302,293 @@ PoC の 1 時間では画面確認を優先する。自動テストは空き枠�
 > 受け入れ基準は **画面確認**（空き枠の計算ロジックのみ自動テスト）で確認する。
 > シフトとマスタは画面を作らずシードデータで用意し、認証と通知は MVP から外す。
 
+確認: 学生 [x]（2026-09-08） / メンター [ ]
+
+---
+
+# 第 2 版: フルスコープ設計（2026-09-09）
+
+体制が **3 人 + AI** になったため、MVP から外していた基準を戻し、必須 14 件を対象にする。
+第 1 版との差分だけでなく、**3 人が同時に手を動かせるようにファイル分割まで決める**のがこの版の目的。
+
+## 対象とする受け入れ基準
+
+| 区分 | # | 内容 | 第 1 版 |
+|---|---|---|---|
+| 利用者 | AC-1〜AC-4 | 空き枠一覧・1 クリック予約・施術時間・性別 | 実装済み（改修あり） |
+| 利用者 | AC-5 | 利用ガイド | 実装済み |
+| 利用者 | AC-13 | 自分の予約をキャンセルする | **新規** |
+| マッサージ師 | AC-15 | 自分の予約状況を見る | **新規** |
+| 管理者 | AC-6 / AC-7 | 集計（ユニーク利用者数・時間帯別・ベッド別） | **新規** |
+| 管理者 | AC-8 | 予約状況（ベッド × 時間） | 実装済み（キャンセル機能を追加） |
+| 管理者 | AC-9 | シフト調整（**管理者のみ**） | **新規** |
+| 管理者 | AC-10 | ベッド数の管理 | **新規** |
+| 通知 | AC-11 / AC-12 | 予約確定時・15 分前の通知 | **新規（疑似送信）** |
+| 認証 | AC-16 / AC-17 | ログイン / ユーザー管理 | **新規** |
+
+対象外のまま: **AC-14**（シフトの繰り返し登録）。
+
+## 実装前に決めた 4 点（テックリード判断）
+
+| # | 論点 | 決定 | 理由 |
+|---|---|---|---|
+| **D-1** | ログインの方式 | **メールアドレス + パスワード。サインアップ（自己登録）は作らない。**アカウントは**管理者がユーザー管理画面で登録**し、初期パスワードを手渡し／DM で本人に渡す。最初の管理者アカウントはシードデータで用意する | 社内アプリなので自己登録は不要（部外者がアカウントを作れてしまう）。**将来は社内のアカウント DB と連携してメールアドレスのみで認証する**が、インターンでは社内 DB に接続できないため今回はパスワード方式にする |
+| **D-2** | 通知（AC-11 / AC-12）の実体 | **実際には送信しない。**`Notification` テーブルに「誰に・どの経路で・何を・いつ送るか」を記録し、管理画面で一覧表示する。15 分前通知は予約時に予約レコードとして作り、`scheduledAt` を持たせる | 誤送信のリスクと、社内メール／Slack の環境準備。**「通知が飛ぶ設計になっている」ことは画面で示せる**ため、発表の価値は落ちない |
+| **D-3** | キャンセル期限 | **利用者は施術開始の 2 時間前まで。管理者はいつでも可** | 現行運用が「施術 2 時間前の自動メールに返信してキャンセル」なので、そこに合わせる |
+| **D-4** | 予約モーダルで入力する情報 | 施術時間・性別希望は**表の上（絞り込み）で先に選ぶ**。モーダルは「日時・施術時間・担当・ベッドの**確認**＋備考（任意）」＋確定ボタン。**利用者名はログイン情報から自動で入る** | 施術時間で押さえる枠の長さが変わる（15 分→30 分 / 45 分→60 分）ため、**枠を選んだ後に施術時間を決めると「選んだ枠に入らない」が起きる**。ログイン導入で名前入力が不要になり、モーダルは軽くなる |
+
+## 画面一覧（9 枚 + モーダル 2 つ）
+
+| # | 画面 | パス | 見られる権限 | 対応 AC |
+|---|---|---|---|---|
+| 1 | ログイン | `/login` | 未ログイン | AC-16 |
+| 2 | 予約画面 | `/` | 全員 | AC-1〜AC-4 / AC-13 |
+| 2a | 利用ガイド（モーダル） | — | 全員 | AC-5 |
+| 2b | 予約確定（モーダル） | — | 全員 | AC-2 / AC-3 |
+| 3 | マッサージ師: 自分の予約状況 | `/therapist` | マッサージ師 | AC-15 |
+| 4 | 管理者: 予約状況（ベッド × 時間） | `/admin` | 管理者 | AC-8 / AC-13 |
+| 5 | 管理者: 集計 | `/admin/stats` | 管理者 | AC-6 / AC-7 |
+| 6 | 管理者: シフト調整 | `/admin/shifts` | 管理者 | AC-9 |
+| 7 | 管理者: ユーザー管理（**アカウント登録**・権限変更・パスワード再設定・無効化） | `/admin/users` | 管理者 | AC-17 |
+| 8 | 管理者: ベッド管理 | `/admin/beds` | 管理者 | AC-10 |
+| 9 | 管理者: 通知の記録 | `/admin/notifications` | 管理者 | AC-11 / AC-12 |
+
+※ 9 は D-2 の決定に伴う画面。「送られるはずの通知」を目で確認するために必要。
+
+### 権限表
+
+**マッサージ師も管理者も社員なので、全員が利用者として予約できる**（要件に記載あり）。
+
+| 画面 | 利用者 | マッサージ師 | 管理者 |
+|---|---|---|---|
+| `/` 予約画面（自分の予約のキャンセル含む） | ○ | ○ | ○ |
+| `/therapist` 自分の担当予約 | × | ○ | ○ |
+| `/admin` 以下すべて | × | × | ○ |
+
+権限が無い画面を開いたときは、ログイン画面か予約画面へ戻す。
+
+### 画面遷移図
+
+図の正本は `diagrams/screen-flow-v2.mmd`。再生成方法はこのファイルの末尾。
+
+![画面遷移図（第 2 版）](diagrams/screen-flow-v2.png)
+
+~~~mermaid
+flowchart TD
+  L["/login<br/>ログイン<br/>AC-16"]
+
+  L --> B["/ 予約画面<br/>上段: 自分の予約 + キャンセル<br/>下段: 週表示の空き枠<br/>AC-1〜4 / AC-13"]
+
+  B --> G["利用ガイド<br/>（モーダル）<br/>AC-5"]
+  G --> B
+  B --> M["予約確定<br/>（モーダル）<br/>内容確認 + 備考<br/>AC-2"]
+  M --> B
+
+  L --> T["/therapist<br/>自分の担当予約一覧<br/>AC-15"]
+
+  L --> A["/admin<br/>予約状況<br/>ベッド × 時間<br/>AC-8 / 管理者キャンセル AC-13"]
+  A --> A2["/admin/stats<br/>集計<br/>AC-6 / AC-7"]
+  A --> A3["/admin/shifts<br/>シフト調整<br/>AC-9"]
+  A --> A4["/admin/users<br/>ユーザー管理<br/>AC-17"]
+  A --> A5["/admin/beds<br/>ベッド数の管理<br/>AC-10"]
+  A --> A6["/admin/notifications<br/>通知の記録<br/>AC-11 / AC-12"]
+
+  style L fill:#fff4cc,color:#000000
+  style B fill:#e6f2ff,color:#000000
+  style T fill:#e6ffe6,color:#000000
+  style A fill:#ffe6f2,color:#000000
+~~~
+
+### 予約画面（`/`）の構成 — 学生の案を反映
+
+~~~mermaid
+flowchart TD
+  H["ヘッダー: ログイン中の氏名 / 利用ガイド / ログアウト"]
+  H --> R["【上段】自分のこれからの予約<br/>1 件ごとに 日時・施術時間・担当・ベッド<br/>右端に「キャンセル」ボタン<br/>（2 時間前を過ぎたら押せない）"]
+  R --> F["【中段】絞り込み<br/>施術時間 15 / 30 / 45 分<br/>担当の性別（チェックボックス・複数可）"]
+  F --> W["【下段】週表示の空き枠<br/>列 = 月〜金 / 行 = 9:00〜19:00 の 15 分刻み<br/>緑 = 空き / 灰色 = 選べない"]
+  W --> M["マスをクリック → モーダル<br/>日時・施術時間・担当・ベッドを確認<br/>備考（任意）を入力 → 予約確定"]
+
+  style R fill:#e6f2ff,color:#000000
+  style M fill:#fff4cc,color:#000000
+~~~
+
+**上段の「自分の予約 + キャンセルボタン」は学生の案そのまま。**
+第 1 版には無かったが、キャンセル（AC-13）を自然に置ける場所であり、
+「予約したことを覚えていない」という利用者の不安にも効く。
+
+## データ構造（第 2 版）
+
+第 1 版の 4 テーブルに **User / Notification を追加**し、Reservation にキャンセル用の列を足す。
+
+図の正本は `diagrams/er-v2.mmd`。再生成方法はこのファイルの末尾。
+
+![ER 図（第 2 版）](diagrams/er-v2.png)
+
+~~~mermaid
+erDiagram
+  USER ||--o{ RESERVATION : "予約する"
+  USER ||--o| THERAPIST : "マッサージ師である"
+  THERAPIST ||--o{ SHIFT : "勤務する"
+  THERAPIST ||--o{ RESERVATION : "施術する"
+  BED ||--o{ RESERVATION : "使われる"
+  USER ||--o{ NOTIFICATION : "宛先になる"
+  RESERVATION ||--o{ NOTIFICATION : "きっかけになる"
+
+  USER {
+    string id "u1..."
+    string name "表示名（仮名）"
+    string email "ログイン ID"
+    string password "初期値は管理者が設定して本人に渡す"
+    string role "user / therapist / admin"
+    boolean active "無効化に使う"
+  }
+  THERAPIST {
+    string id "t1..."
+    string userId "USER.id（ログインする場合）"
+    string name "表示名"
+    string gender "male / female"
+    boolean active "退職・休職に使う"
+  }
+  BED {
+    string id "b1, b2, b3"
+    string name "ベッド A / B / C"
+    boolean active "台数変更に使う"
+  }
+  SHIFT {
+    string id "sh1..."
+    string therapistId "THERAPIST.id"
+    string date "2026-09-08"
+    string startTime "09:00"
+    string endTime "14:00"
+  }
+  RESERVATION {
+    string id "r1..."
+    string userId "USER.id（誰が受けるか）"
+    string bedId "BED.id"
+    string therapistId "THERAPIST.id"
+    string date "2026-09-08"
+    string startTime "09:00 施術開始"
+    int treatmentMin "15 / 30 / 45"
+    string blockEndTime "施術 + 15 分の枠終了"
+    string status "booked / cancelled"
+    string note "備考（任意）"
+    string cancelledById "USER.id（誰が取り消したか）"
+    string cancelReason "取り消しの理由"
+  }
+  NOTIFICATION {
+    string id "n1..."
+    string reservationId "RESERVATION.id"
+    string toUserId "USER.id"
+    string kind "reserved / reminder / cancelled"
+    string channel "email / slack"
+    string subject "件名"
+    string body "本文"
+    string scheduledAt "送る予定の日時"
+    string sentAt "疑似送信した日時"
+  }
+~~~
+
+### 設計上の判断（第 2 版で足したもの）
+
+| 判断 | 内容 | 理由 |
+|---|---|---|
+| **Therapist を User に統合しない** | User を新設し、Therapist は `userId` で紐づける（任意） | 統合すると既存の `lib/slots.ts` と `app/actions.ts` を全面的に書き換えることになり、**3 人の並行作業の起点で大きな衝突が起きる**。分けておけば空き枠計算のコードはほぼそのまま使える |
+| **Reservation は物理削除しない** | `status` を `cancelled` にする | **キャンセルも利用実績のデータ**。「予約したが直前に取り消す人が多い」なども AC-6 / AC-7 で見えるようにするため |
+| **`active` フラグを持つ** | Bed / Therapist / User | ベッドを減らす・マッサージ師が辞めるときに**過去の予約が壊れない**。削除すると実績が消える |
+| **Notification は予約時にまとめて作る** | 確定通知は `sentAt` 即時、15 分前通知は `scheduledAt` のみ入れて未送信で置く | D-2。実送信しないので「送信予定の一覧」が見えれば設計の妥当性は示せる |
+| **`userName` を `userId` に置き換える** | 既存の Reservation.userName は廃止 | **AC-6 のユニーク利用者数を数えるため**。名前の手入力では表記ゆれで数えられない |
+
+## Server Actions（第 2 版）
+
+**ファイルを機能別に分ける。**第 1 版は `app/actions.ts` 1 本だったが、3 人で同時に触ると必ず衝突する。
+
+| ファイル | 関数 | 対応 AC | 担当 |
+|---|---|---|---|
+| `app/actions/auth.ts` | `login` / `logout` / `getCurrentUser` | AC-16 | A |
+| `app/actions/users.ts` | `listUsers` / **`createUser`（管理者がアカウントを登録）** / `updateUser`（権限・氏名・性別） / `resetPassword` / `deactivateUser` | AC-17 | A |
+| `app/actions/booking.ts` | `fetchWeekSlots` / `createReservation` / `listMyReservations` / `cancelReservation` | AC-1〜4 / AC-13 | B |
+| `app/actions/therapist.ts` | `listMyAssignments` | AC-15 | B |
+| `app/actions/admin.ts` | `getDaySchedule` / `cancelByAdmin` | AC-8 / AC-13 | C |
+| `app/actions/stats.ts` | `getStats`（期間 → ユニーク利用者数・時間帯別・ベッド別） | AC-6 / AC-7 | C |
+| `app/actions/shifts.ts` | `listShifts` / `upsertShift` / `deleteShift` | AC-9 | C |
+| `app/actions/beds.ts` | `listBeds` / `createBed` / `updateBed` / `deactivateBed` | AC-10 | C |
+| `lib/notify.ts` | `enqueueNotification`（疑似送信） | AC-11 / AC-12 | A |
+| `lib/slots.ts` | 空き枠計算（**既存。原則さわらない**） | AC-1 | 共通 |
+
+## 3 人での分担
+
+**先に 1 人が「土台」を入れ、それが終わってから 3 人に分かれる。**
+土台（DB スキーマ・シード・ログインの仕組み）は全員が依存するため、並行させると全員が止まる。
+
+~~~mermaid
+flowchart LR
+  Z["【土台】1 人で先に実施<br/>・schema.prisma に User / Notification 追加<br/>・Reservation に status / note / userId<br/>・seed の書き換え<br/>・actions.ts を機能別ファイルに分割<br/>・ログインの仕組み（Cookie でユーザーを保持）"]
+  Z --> A2["A: 認証まわり<br/>/login<br/>/admin/users<br/>lib/notify.ts<br/>/admin/notifications"]
+  Z --> B2["B: 利用者・マッサージ師<br/>/ 予約画面の改修<br/>（自分の予約・キャンセル・モーダル）<br/>/therapist"]
+  Z --> C2["C: 管理者<br/>/admin にキャンセル追加<br/>/admin/stats<br/>/admin/shifts<br/>/admin/beds"]
+
+  style Z fill:#fff4cc,color:#000000
+~~~
+
+### 衝突しやすい場所（ここだけは同時に触らない）
+
+| ファイル | 理由 | 対策 |
+|---|---|---|
+| `prisma/schema.prisma` | 全員が追記したくなる | **土台の段階で最終形まで書き切る。**以降は原則さわらない |
+| `prisma/seed.ts` | 同上 | 同上 |
+| `lib/slots.ts` | 空き枠計算。全画面の土台 | **完成済み。さわらない。**変更が要るときは 3 人で相談する |
+| `app/page.tsx` | B が全面改修する | A と C は触らない |
+
+Git はブランチを分ける（例 `feat/auth` `feat/booking` `feat/admin`）。
+**1 日 1 回は main に取り込む。**ためると解決できない衝突になる。
+
+## セキュリティ（第 2 版で増えた注意点）
+
+第 2 版では**アカウント情報を扱う**ため、第 1 版より注意が必要になる。
+
+| 項目 | 方針 |
+|---|---|
+| 氏名・メールアドレス | **すべて仮名・架空のドメイン**（`user1@example.com` など）。実在の社員名・社内アドレスを入れない |
+| アカウントの作り方 | **自己登録なし。管理者が登録して初期パスワードを本人に渡す**（D-1）。最初の管理者はシードで用意する |
+| パスワード | **今回は簡易実装。**PoC のダミーアカウント（仮名・架空ドメイン）専用であり、実在のパスワードは登録しない。**本番では社内アカウント DB と連携し、このアプリでパスワードを持たない**方針である旨をリスクとして記録する |
+| セッション | Cookie でログイン中のユーザーを保持する簡易実装。**なりすましが可能**であることをリスクに明記する |
+| 権限チェック | 画面を隠すだけでなく、**Server Action の側でも role を確認する。**画面の出し分けだけでは URL 直打ちで通ってしまう |
+| 通知の本文 | 疑似送信のみ。実際のメール・Slack へは送らない（D-2） |
+| DB ファイル・`.env` | `.gitignore` 済み。**環境を作り直すたびに `npm install` → `.env` 作成 → `prisma migrate deploy` → `seed` が必要** |
+
+## 引き継ぐ未確認事項・受け入れるリスク（第 2 版）
+
+| # | 内容 | 扱い |
+|---|---|---|
+| **Q-8 との食い違い** | シフトの入力者を「マッサージ師」から「管理者のみ」へ変更した | requirements.md に記録済み。**メンター／管理者に確認する** |
+| **700 人のアカウント登録** | 実運用で管理者が 700 人ぶんを手入力するのは不可能 | PoC では管理画面からの手動登録のみ。**本番は社内アカウント DB と連携し、メールアドレスのみで認証する**方針（D-1） |
+| **パスワードの扱い** | **今回の実装の都合であり、本番で採用する方式ではない** | 上記のとおり本番は社内 DB 連携。発表で問われたらこの一文で答える |
+| なりすまし | セッションが簡易なため、Cookie を書き換えれば他人になりすませる | PoC として受け入れる。本番には正式なセッション管理が必要 |
+| R-2 | 午後に女性マッサージ師がいないのは常にそうか | シフトデータで表現するため設計上の障害にならない |
+
+## 設計宣言（第 2 版）
+
+> **必須の受け入れ基準 14 件（AC-1〜AC-13 と AC-15〜AC-17。AC-14 のみ対象外）を、
+> Next.js（App Router）+ TypeScript + SQLite + Prisma で作る。**
+> 画面は **9 枚 + モーダル 2 つ**、データは **User / Therapist / Bed / Shift / Reservation / Notification の 6 テーブル**。
+> ログインはメールアドレス + パスワードで、**自己登録は作らず管理者がアカウントを登録する**（D-1）、
+> 通知は実送信せず記録と画面表示で示す（D-2）、
+> キャンセルは利用者が 2 時間前まで・管理者はいつでも可（D-3）、
+> 予約は「施術時間と性別を先に絞り込み → 枠を選ぶ → モーダルで確認して確定」（D-4）とする。
+> 実装は **土台を 1 人で先に入れてから、A（認証）/ B（利用者・マッサージ師）/ C（管理者）の 3 人**に分かれる。
+>
+> 認証が簡易でなりすまし可能であること、通知が疑似送信であること、
+> 700 人ぶんのアカウント作成手段が無いことは、**PoC として受け入れるリスク**として明記する。
+
 確認: 学生 [ ] / メンター [ ]
+
+## 図の再生成方法（第 2 版）
+
+`.mmd` を直したら次を実行して `.png` を作り直す。**正本は `.mmd`。**
+
+```bash
+cd docs/intern/diagrams
+npx -y @mermaid-js/mermaid-cli@11 -i er-v2.mmd          -o er-v2.png          -b white -s 2
+npx -y @mermaid-js/mermaid-cli@11 -i screen-flow-v2.mmd -o screen-flow-v2.png -b white -s 2
+```

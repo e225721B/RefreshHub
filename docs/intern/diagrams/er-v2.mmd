@@ -1,0 +1,61 @@
+erDiagram
+  USER ||--o{ RESERVATION : "予約する"
+  USER ||--o| THERAPIST : "マッサージ師である"
+  USER ||--o{ NOTIFICATION : "宛先になる"
+  THERAPIST ||--o{ SHIFT : "勤務する"
+  THERAPIST ||--o{ RESERVATION : "施術する"
+  BED ||--o{ RESERVATION : "使われる"
+  RESERVATION ||--o{ NOTIFICATION : "きっかけになる"
+
+  USER {
+    string id "u1..."
+    string name "表示名（仮名）"
+    string email "ログイン ID"
+    string password "管理者が登録し本人に渡す"
+    string role "user / therapist / admin"
+    boolean active "無効化に使う"
+  }
+  THERAPIST {
+    string id "t1..."
+    string userId "USER.id（ログインする場合）"
+    string name "表示名"
+    string gender "male / female"
+    boolean active "退職・休職に使う"
+  }
+  BED {
+    string id "b1, b2, b3"
+    string name "ベッド A / B / C"
+    boolean active "台数変更に使う"
+  }
+  SHIFT {
+    string id "sh1..."
+    string therapistId "THERAPIST.id"
+    string date "2026-09-08"
+    string startTime "09:00"
+    string endTime "14:00"
+  }
+  RESERVATION {
+    string id "r1..."
+    string userId "USER.id（誰が受けるか）"
+    string bedId "BED.id"
+    string therapistId "THERAPIST.id"
+    string date "2026-09-08"
+    string startTime "09:00 施術開始"
+    int treatmentMin "15 / 30 / 45"
+    string blockEndTime "施術 + 15 分の枠終了"
+    string status "booked / cancelled"
+    string note "備考（任意）"
+    string cancelledById "USER.id（誰が取り消したか）"
+    string cancelReason "取り消しの理由"
+  }
+  NOTIFICATION {
+    string id "n1..."
+    string reservationId "RESERVATION.id"
+    string toUserId "USER.id"
+    string kind "reserved / reminder / cancelled"
+    string channel "email / slack"
+    string subject "件名"
+    string body "本文"
+    string scheduledAt "送る予定の日時"
+    string sentAt "疑似送信した日時"
+  }
