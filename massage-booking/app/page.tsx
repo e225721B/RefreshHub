@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { listSelectableTherapists } from "@/lib/therapists";
 import { MyUpcomingReservations } from "./MyUpcomingReservations";
 import { TopNav } from "./TopNav";
@@ -13,7 +13,7 @@ export default async function Home({
   searchParams: Promise<{ denied?: string }>;
 }) {
   // 未ログインならログイン画面へ。戻り先を渡し、ログイン後にここへ戻す。
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2F");
   const { denied } = await searchParams;
   // 絞り込みチェックボックスの選択肢（Issue #9）。
@@ -33,11 +33,18 @@ export default async function Home({
               空いた時間に、ひと息つきに行こう。
             </p>
           </div>
-          {user.role === "admin" && (
-            <Link href="/admin" className="text-sm underline underline-offset-4">
-              管理者向け: 予約状況を見る
-            </Link>
-          )}
+          <div className="flex flex-wrap items-center gap-4">
+            {(user.role === "therapist" || user.role === "admin") && (
+              <Link href="/therapist" className="text-sm underline underline-offset-4">
+                マッサージ師向け: 自分の予約を見る
+              </Link>
+            )}
+            {user.role === "admin" && (
+              <Link href="/admin" className="text-sm underline underline-offset-4">
+                管理者向け: 予約状況を見る
+              </Link>
+            )}
+          </div>
         </header>
 
         {denied === "admin" && (
