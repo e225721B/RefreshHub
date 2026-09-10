@@ -27,7 +27,7 @@ export type UserRow = {
   role: string;
   active: boolean;
   gender: Gender;
-  /** 削除したときに何が起きるかを画面で先に見せるために持つ */
+  /** 一覧と確認ダイアログに「利用実績」として見せる。削除の可否には使わない（削除は常に論理削除） */
   history: UserHistory;
   canDelete: boolean;
 };
@@ -38,13 +38,21 @@ export type CreateUserState = {
   created: { name: string; email: string; role: Role; password: string } | null;
 };
 
-/** ユーザー一覧（AC-17）。マッサージ師は性別も一緒に見えるようにする */
-export async function listUsers(): Promise<UserRow[]> {
+/**
+ * ユーザー一覧（AC-17）。マッサージ師は性別も一緒に見えるようにする。
+ *
+ * 削除は論理削除（active を false にするだけ）で行は DB に残るが、
+ * **既定では一覧に出さない。**消したはずの人が並び続けると一覧が使いものにならないため。
+ * 誤って消したときに戻せるよう、includeDeleted を立てたときだけ一緒に返す。
+ */
+export async function listUsers(options?: { includeDeleted?: boolean }): Promise<UserRow[]> {
   const me = await requireRole(["admin"]);
   const users = await prisma.user.findMany({
+    where: options?.includeDeleted ? undefined : { active: true },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
-  const activeAdmins = users.filter((u) => u.role === "admin" && u.active).length;
+  // 「管理者が 0 人になる削除」を止めるための数。一覧の絞り込みとは別に DB 全体で数える
+  const activeAdmins = await prisma.user.count({ where: { role: "admin", active: true } });
 
   return Promise.all(
     users.map(async (u) => ({
@@ -124,10 +132,8 @@ export async function deleteUser(
   revalidatePath("/admin/users");
   return {
     error: null,
-    message:
-      result.mode === "deleted"
-        ? `${result.name} を削除しました`
-        : `${result.name} には予約などの記録があるため、削除せず無効にしました（ログインできなくなります）`,
+    // 論理削除なので「消えた」と言い切らない。何が起きたかをそのまま書く
+    message: `${result.name} を削除しました（ログインできなくなります。過去の予約と集計は残ります）`,
   };
 }
 

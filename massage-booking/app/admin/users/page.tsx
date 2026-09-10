@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listUsers } from "@/app/actions/users";
 import { GENDER_LABEL, ROLE_LABEL, isRole, isGender } from "@/lib/roles";
+import { hasHistory } from "@/lib/users";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { UserBar } from "../../UserBar";
 import { AddUserDialog } from "../AddUserDialog";
@@ -12,13 +13,20 @@ export const metadata = {
 };
 
 /** 管理者: ユーザー管理（AC-17 / A-4） */
-export default async function AdminUsersPage() {
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  // Next.js 16 では searchParams は Promise。await が必要
+  searchParams: Promise<{ deleted?: string }>;
+}) {
   // アカウント情報を扱う画面なので、管理者以外は入れない（F-8 / 要件 Q-7）
   const user = await getCurrentUser(await nextCookieJar());
   if (!user) redirect("/login?next=%2Fadmin%2Fusers");
   if (user.role !== "admin") redirect("/?denied=admin");
 
-  const users = await listUsers();
+  // 削除した人は既定では出さない。?deleted=1 のときだけ一緒に出す（誤削除の戻し道）
+  const showDeleted = (await searchParams).deleted === "1";
+  const users = await listUsers({ includeDeleted: showDeleted });
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -37,7 +45,20 @@ export default async function AdminUsersPage() {
         </div>
       </header>
 
-      <div className="mb-6 flex justify-end">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        {/*
+          チェックボックスの見た目にしているが中身はリンク。
+          JavaScript を足さずに URL だけで切り替えるため（この画面は他に状態を持たない）。
+        */}
+        <Link
+          href={showDeleted ? "/admin/users" : "/admin/users?deleted=1"}
+          className="flex items-center gap-2 text-sm text-black/70 transition hover:text-black dark:text-white/70 dark:hover:text-white"
+        >
+          <span aria-hidden className="text-base leading-none">
+            {showDeleted ? "☑" : "☐"}
+          </span>
+          削除済みも表示する
+        </Link>
         <AddUserDialog />
       </div>
 
@@ -45,7 +66,12 @@ export default async function AdminUsersPage() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              {["氏名", "メールアドレス", "権限", "性別", "利用実績", "状態", "操作"].map((label) => (
+              {/*
+                「状態」列は置かない。削除は論理削除（User.active を false にする）だけなので、
+                「無効」になるのは削除したときに限られ、操作列の「有効に戻す」ボタンと
+                同じことを二重に言うことになる。削除済みの人は行を薄くして見分ける。
+              */}
+              {["氏名", "メールアドレス", "権限", "性別", "利用実績", "操作"].map((label) => (
                 <th
                   key={label}
                   className="border border-black/10 px-3 py-2 text-left dark:border-white/15"
@@ -56,13 +82,26 @@ export default async function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
+            {users.length === 0 && (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="border border-black/10 px-3 py-8 text-center text-black/50 dark:border-white/15 dark:text-white/50"
+                >
+                  表示できるユーザーがいません。
+                </td>
+              </tr>
+            )}
             {users.map((u) => (
               // 集計画面（A-2）の一覧表から /admin/users#user-<id> で飛んでくる。
               // 飛んできた行だけ target: で色を付け、どの人を見に来たか分かるようにする
               <tr
                 key={u.id}
                 id={`user-${u.id}`}
-                className="scroll-mt-24 target:bg-amber-100/70 dark:target:bg-amber-400/15"
+                className={`scroll-mt-24 target:bg-amber-100/70 dark:target:bg-amber-400/15 ${
+                  // 削除済み（active = false）の行は薄くして、有効な人と見分けられるようにする
+                  u.active ? "" : "text-black/40 dark:text-white/40"
+                }`}
               >
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.name}</td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.email}</td>
@@ -73,7 +112,7 @@ export default async function AdminUsersPage() {
                   {isGender(u.gender) ? GENDER_LABEL[u.gender] : u.gender}
                 </td>
                 <td className="border border-black/10 px-3 py-2 tabular-nums dark:border-white/15">
-                  {u.history.reservations + u.history.assignments + u.history.others === 0 ? (
+                  {!hasHistory(u.history) ? (
                     <span className="text-black/40 dark:text-white/40">なし</span>
                   ) : (
                     [
@@ -83,13 +122,6 @@ export default async function AdminUsersPage() {
                     ]
                       .filter(Boolean)
                       .join(" / ")
-                  )}
-                </td>
-                <td className="border border-black/10 px-3 py-2 dark:border-white/15">
-                  {u.active ? (
-                    "有効"
-                  ) : (
-                    <span className="text-black/50 dark:text-white/50">無効</span>
                   )}
                 </td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">

@@ -117,8 +117,9 @@ export function hasHistory(h: UserHistory): boolean {
 }
 
 /**
- * そのユーザーを消すと壊れる記録の件数を数える。
- * 1 件でもあれば物理削除せず「無効化」に切り替える（design.md の active フラグの判断）。
+ * そのユーザーが残している記録の件数を数える。
+ * 削除の可否を決めるためではなく、**一覧と確認ダイアログに「利用実績」として見せる**ために使う
+ * （削除は記録の有無によらず論理削除に統一した。下の deleteUserAccount を参照）。
  */
 export async function countUserHistory(userId: string): Promise<UserHistory> {
   const therapist = await prisma.therapist.findUnique({ where: { userId } });
@@ -133,16 +134,18 @@ export async function countUserHistory(userId: string): Promise<UserHistory> {
   return { reservations, assignments, others: notifications + cancellations + absencesCreated };
 }
 
-export type DeleteUserResult =
-  | { ok: true; mode: "deleted" | "deactivated"; name: string }
-  | { ok: false; message: string };
+export type DeleteUserResult = { ok: true; name: string } | { ok: false; message: string };
 
 /**
- * ユーザーを削除する（AC-17）。
+ * ユーザーを削除する（AC-17）。**論理削除。DB の行は消さない。**
  *
- * 予約などの記録が 1 件も無ければ DB から消す（登録の間違いをなかったことにできる）。
- * 記録がある場合は消さずに「無効化」してログインできなくする。
- * 消してしまうと過去の予約と集計（AC-6 / AC-7）が壊れ、「誰が使ったか」が追えなくなるため。
+ * `User.active` を false にすることが、このアプリでの「削除」。
+ * ログインできなくなり、空き枠の担当にも出なくなるが、行は残る。
+ *
+ * 物理削除にしない理由: 予約・担当・通知・キャンセル操作はすべて User を指しており、
+ * **消すと過去の予約と集計（AC-6 / AC-7）が壊れ、「誰が使ったか」が後から追えなくなる。**
+ * 記録が 1 件も無い人（登録の打ち間違い）だけ物理削除する作りにしていたが、
+ * 「後から見返す必要が出てくる」というレビュー指摘を受けて論理削除に一本化した（2026-09-10）。
  */
 export async function deleteUserAccount(
   actorId: string,
@@ -154,10 +157,8 @@ export async function deleteUserAccount(
     return fail("自分自身のアカウントは削除できません");
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    include: { therapist: true },
-  });
+  // Therapist は読まない。論理削除では触らないため（勤務側の設定は別物）
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return fail("対象のユーザーが見つかりません");
 
   // 管理者が 0 人になると、以降だれもユーザーを登録できなくなる
@@ -168,37 +169,24 @@ export async function deleteUserAccount(
     }
   }
 
-  const history = await countUserHistory(userId);
-  if (hasHistory(history)) {
-    // 倒すのは User.active だけ。Therapist.active は「今この人の予約を受け付けるか」という
-    // 勤務側の別の設定なので、アカウントの有効・無効で勝手に書き換えない。
-    // 無効化した人が空き枠の担当に出ないことは、空き枠側で user.active も見て担保している
-    // （app/actions/booking.ts の fetchWeekAvailability）。同じ状態を 2 か所に持つと必ずずれるため。
-    await prisma.user.update({ where: { id: userId }, data: { active: false } });
-    return { ok: true, mode: "deactivated", name: user.name };
-  }
+  if (!user.active) return fail(`${user.name} はすでに削除されています`);
 
-  // 記録が無いので完全に消す。マッサージ師なら勤務ルールごと消す
-  const therapist = user.therapist;
-  await prisma.$transaction(async (tx) => {
-    if (therapist) {
-      await tx.therapistWorkHours.deleteMany({ where: { therapistId: therapist.id } });
-      await tx.therapistAbsence.deleteMany({ where: { therapistId: therapist.id } });
-      await tx.therapist.delete({ where: { id: therapist.id } });
-    }
-    await tx.user.delete({ where: { id: userId } });
-  });
-  return { ok: true, mode: "deleted", name: user.name };
+  // 倒すのは User.active だけ。Therapist.active は「今この人の予約を受け付けるか」という
+  // 勤務側の別の設定なので、アカウントの有効・無効で勝手に書き換えない。
+  // 削除した人が空き枠の担当に出ないことは、空き枠側で user.active も見て担保している
+  // （app/actions/booking.ts の fetchWeekAvailability）。同じ状態を 2 か所に持つと必ずずれるため。
+  await prisma.user.update({ where: { id: userId }, data: { active: false } });
+  return { ok: true, name: user.name };
 }
 
 /**
- * 無効化したユーザーを元に戻す。削除が「無効化」に切り替わったときの戻し道。
- * 戻すのも User.active だけ。マッサージ師の Therapist.active は無効化のときに触っていないので、
+ * 削除したユーザーを元に戻す。論理削除なので行が残っており、戻せる。
+ * 戻すのも User.active だけ。マッサージ師の Therapist.active は削除のときに触っていないので、
  * 「休止中にしていた人が復帰で勝手に受付中に戻る」ことは起きない。
  */
 export async function reactivateUserAccount(userId: string): Promise<DeleteUserResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { ok: false, message: "対象のユーザーが見つかりません" };
   await prisma.user.update({ where: { id: userId }, data: { active: true } });
-  return { ok: true, mode: "deactivated", name: user.name };
+  return { ok: true, name: user.name };
 }
