@@ -61,7 +61,10 @@ export function WeekSchedule({
   const [saving, setSaving] = useState(false);
   // 「今」を状態として持つ。画面を開いたままにしていても、時間が過ぎた枠が
   // そのまま選べる状態で残らないように 1 分ごとに進める
-  const [now, setNow] = useState(() => new Date());
+  // 最初は null にしてマウント後に入れる。サーバー描画時の時刻とクライアントの時刻が
+  // 分の境界をまたぐと表示が食い違う（ハイドレーション不一致）ため。
+  // 最初の描画では空き枠自体がまだ無い（availability は空）ので、見た目には影響しない。
+  const [now, setNow] = useState<Date | null>(null);
 
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
@@ -100,7 +103,7 @@ export function WeekSchedule({
     if (isPast(date)) return false;
     // 今日の過ぎた時間（15:00 を過ぎてからの 9:00 など）は選ばせない。
     // サーバー側でも同じ判定をしているが、開いたままの画面が古くなる分はここで止める
-    if (isStartPassed(date, time, now)) return false;
+    if (now !== null && isStartPassed(date, time, now)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
   }
 
@@ -130,8 +133,13 @@ export function WeekSchedule({
     return rowIndex >= selected.startRow && rowIndex < selected.startRow + selected.cells;
   }
 
-  // 1 分ごとに「今」を進める。ちょうど始まる時刻をまたいだ枠が選べたままにならないようにする。
+  // マウント直後に「今」を入れ、その後 1 分ごとに進める。
+  // ちょうど始まる時刻をまたいだ枠が、選べたまま残らないようにする。
   useEffect(() => {
+    // サーバー描画時刻とクライアントの時刻がずれてハイドレーション不一致になるのを避けるため、
+    // マウント直後にだけ同期的に設定する（意図的な例外）。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
   }, []);
@@ -434,7 +442,7 @@ export function WeekSchedule({
                 </th>
                 {days.map((date) => {
                   const open = isCellOpen(date, time);
-                  const passed = isPast(date) || isStartPassed(date, time, now);
+                  const passed = isPast(date) || (now !== null && isStartPassed(date, time, now));
                   const inSelection = isInSelection(date, rowIndex);
                   const selectionValid = selected?.valid ?? true;
 
