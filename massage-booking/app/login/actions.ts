@@ -27,15 +27,17 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   // 照合とCookieの発行は lib/session.ts に任せる（F-6 で実装済み・テスト済み）
-  const result = await loginUser(await nextCookieJar(), email, password);
+  const jar = await nextCookieJar();
+  const result = await loginUser(jar, email, password);
   if (!result.ok) return { error: result.message };
 
-  // 管理者は自分で予約を取る立場ではないので、予約画面ではなく管理画面へ送る。
-  // 行き先が指定されている場合（権限の無い画面を開こうとしてログインに飛ばされた等）はそちらを優先する。
+  // next が指定されていない（＝ /login を直接開いた）場合は role ごとの既定の着地先へ送る
+  // （管理者は /admin、マッサージ師は /therapist、それ以外は /）。
+  // next が指定されているとき（例: 権限の無い画面を開こうとしてログインに飛ばされた場合）はそちらを優先する。
   redirect(next === "/" ? landingFor(result.user.role) : next);
 }
 
 export async function logout() {
-  logoutUser(await nextCookieJar());
+  await logoutUser(await nextCookieJar());
   redirect("/login");
 }

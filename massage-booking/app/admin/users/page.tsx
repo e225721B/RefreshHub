@@ -47,7 +47,7 @@ export default async function AdminUsersPage({
   searchParams: Promise<Query>;
 }) {
   // アカウント情報を扱う画面なので、管理者以外は入れない（F-8 / 要件 Q-7）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fusers");
   if (user.role !== "admin") redirect("/?denied=admin");
 

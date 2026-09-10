@@ -31,7 +31,10 @@ export function isGender(value: string): value is Gender {
 /**
  * ログイン直後の行き先。管理者は自分で予約を取る立場ではないため、
  * 予約画面ではなく管理画面（予約状況）に着地させる。
+ * マッサージ師は予約画面を挟まず、自分の当日の予約（/therapist）に着地させる。
  */
 export function landingFor(role: string): string {
-  return role === "admin" ? "/admin" : "/";
+  if (role === "admin") return "/admin";
+  if (role === "therapist") return "/therapist";
+  return "/";
 }

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { landingFor } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
@@ -46,7 +46,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   // ログイン済みの人をログイン画面に留めない（管理者は管理画面へ）
-  const current = await getCurrentUser(await nextCookieJar());
+  const current = await getCurrentUserForRequest();
   if (current) redirect(landingFor(current.role));
 
   const params = await searchParams;
@@ -135,6 +135,11 @@ export default async function LoginPage({
             管理者{" "}
             <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
               admin@example.com
+            </code>
+            {" / "}
+            マッサージ師{" "}
+            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
+              therapist-a@example.com
             </code>
           </p>
           <p className="mt-1">

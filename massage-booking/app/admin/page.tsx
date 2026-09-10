@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
+import { UserBar } from "../UserBar";
 import { AddUserDialog } from "./AddUserDialog";
 import { AdminHeader } from "./AdminHeader";
 import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
@@ -44,7 +45,7 @@ export default async function AdminPage({
 }) {
   const params = await searchParams;
   // 予約状況は個人単位の利用実績にあたるため、管理者だけが開ける（要件 Q-7 / F-8）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin");
   if (user.role !== "admin") redirect("/?denied=admin");
 
@@ -92,6 +93,24 @@ export default async function AdminPage({
   const usageRate = capacity === 0 ? 0 : Math.round((usedSlots / capacity) * 100);
 
   return (
+    <main className="mx-auto max-w-5xl px-6 py-10">
+      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">予約状況</h1>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <Link href="/admin/stats" className="text-sm underline underline-offset-4">
+            集計
+          </Link>
+          <Link href="/admin/users" className="text-sm underline underline-offset-4">
+            ユーザー管理
+          </Link>
+          <Link href="/therapist" className="text-sm underline underline-offset-4">
+            マッサージ師向け画面を見る
+          </Link>
+          <UserBar user={user} />
+        </div>
+      </header>
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
       <AdminHeader title="予約状況" current="/admin" user={user} />
 
