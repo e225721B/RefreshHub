@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { UserBar } from "../UserBar";
 import { AddUserDialog } from "./AddUserDialog";
 import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
@@ -44,7 +44,7 @@ export default async function AdminPage({
 }) {
   const params = await searchParams;
   // 予約状況は個人単位の利用実績にあたるため、管理者だけが開ける（要件 Q-7 / F-8）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin");
   if (user.role !== "admin") redirect("/?denied=admin");
 
@@ -103,6 +103,9 @@ export default async function AdminPage({
           </Link>
           <Link href="/admin/users" className="text-sm underline underline-offset-4">
             ユーザー管理
+          </Link>
+          <Link href="/therapist" className="text-sm underline underline-offset-4">
+            マッサージ師向け画面を見る
           </Link>
           <UserBar user={user} />
         </div>
