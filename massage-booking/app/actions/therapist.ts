@@ -179,7 +179,7 @@ export async function listActiveTherapists(): Promise<TherapistOption[]> {
   return therapists.map((t) => ({
     id: t.id,
     name: t.user.name,
-    gender: t.gender,
+    gender: t.user.gender,
     isSelf: t.userId === user.id,
   }));
 }

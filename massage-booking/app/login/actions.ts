@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { getCurrentUser, login as loginUser, logout as logoutUser, nextCookieJar } from "@/lib/session";
+import { landingFor } from "@/lib/roles";
+import { login as loginUser, logout as logoutUser, nextCookieJar } from "@/lib/session";
 
 export type LoginState = { error: string | null };
 
@@ -30,14 +31,10 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   const result = await loginUser(jar, email, password);
   if (!result.ok) return { error: result.message };
 
-  // next が指定されていない（＝ /login を直接開いた）場合、マッサージ師は
-  // 予約画面を挟まず /therapist へ直接送る。next が指定されているとき
-  // （例: /therapist から未ログインで弾かれた場合の ?next=%2Ftherapist）はそちらを優先する。
-  if (next === "/") {
-    const user = await getCurrentUser(jar);
-    if (user?.role === "therapist") redirect("/therapist");
-  }
-  redirect(next);
+  // next が指定されていない（＝ /login を直接開いた）場合は role ごとの既定の着地先へ送る
+  // （管理者は /admin、マッサージ師は /therapist、それ以外は /）。
+  // next が指定されているとき（例: 権限の無い画面を開こうとしてログインに飛ばされた場合）はそちらを優先する。
+  redirect(next === "/" ? landingFor(result.user.role) : next);
 }
 
 export async function logout() {
