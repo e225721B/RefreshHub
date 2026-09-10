@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { UserBar } from "../UserBar";
 import { AddUserDialog } from "./AddUserDialog";
-import { formatShort, hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
+import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
 import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
 
@@ -91,20 +91,16 @@ export default async function AdminPage({
   const usedSlots = blocks.reduce((sum, b) => sum + b.slots, 0);
   const usageRate = capacity === 0 ? 0 : Math.round((usedSlots / capacity) * 100);
 
-  const isToday = date === todayString();
-
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <header className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">予約状況</h1>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            {isToday
-              ? "今日、みんながひと息ついている様子です。"
-              : `${formatShort(date)} の予約の入り方です。`}
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
+          <Link href="/admin/stats" className="text-sm underline underline-offset-4">
+            集計
+          </Link>
           <Link href="/admin/users" className="text-sm underline underline-offset-4">
             ユーザー管理
           </Link>
@@ -246,11 +242,6 @@ export default async function AdminPage({
           </tbody>
         </table>
       </div>
-
-      <p className="mt-3 text-xs leading-relaxed text-black/50 dark:text-white/50">
-        稼働率は「予約が押さえた枠 ÷（ベッド {beds.length} 台 × 1 台あたり {SLOTS_PER_BED} 枠）」。
-        押さえる枠には清掃・準備の 15 分を含みます。キャンセル済みの予約は表にも件数にも出しません。
-      </p>
     </main>
   );
 }
