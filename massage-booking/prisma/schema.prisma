@@ -35,7 +35,7 @@ model User {
 /// user.id 自体は Cookie に載せない（design.md 参照）。
 model Session {
   token     String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
   createdAt DateTime @default(now())
   expiresAt DateTime
