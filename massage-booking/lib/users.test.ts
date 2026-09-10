@@ -7,6 +7,7 @@ import { prisma } from "./db";
 import { generatePassword } from "./generate-password";
 import { verifyPassword } from "./password";
 import { type CookieJar, login } from "./session";
+import { isValidPassword } from "./generate-password";
 import { createUserAccount, deleteUserAccount, reactivateUserAccount } from "./users";
 
 /** このテストで作ったユーザーだけを消すための目印 */
@@ -85,8 +86,49 @@ test("マッサージ師を登録すると Therapist も同時に作られる", 
 
   const saved = await prisma.user.findUnique({ where: { email }, include: { therapist: true } });
   assert.equal(saved?.role, "therapist");
-  assert.equal(saved?.therapist?.gender, "female");
+  // 性別は User が持つ（Therapist ではない）
+  assert.equal(saved?.gender, "female");
+  assert.ok(saved?.therapist, "Therapist の行も作られていること");
   assert.equal(saved?.therapist?.active, true);
+});
+
+test("利用者・管理者も性別を選べる。選ばなければ空のままにできる", async () => {
+  const withGender = await createUserAccount({
+    name: "性別あり 一郎",
+    email: emailFor("user-with-gender"),
+    role: "user",
+    gender: "male",
+  });
+  assert.ok(withGender.ok);
+  assert.equal((await prisma.user.findUnique({ where: { id: withGender.user.id } }))?.gender, "male");
+
+  const admin = await createUserAccount({
+    name: "性別あり 管理者",
+    email: emailFor("admin-with-gender"),
+    role: "admin",
+    gender: "female",
+  });
+  assert.ok(admin.ok);
+  assert.equal((await prisma.user.findUnique({ where: { id: admin.user.id } }))?.gender, "female");
+
+  // 選ばなければ null（利用者・管理者は任意）
+  const without = await createUserAccount({
+    name: "性別なし 二郎",
+    email: emailFor("user-no-gender"),
+    role: "user",
+  });
+  assert.ok(without.ok);
+  assert.equal((await prisma.user.findUnique({ where: { id: without.user.id } }))?.gender, null);
+});
+
+test("性別に知らない値を渡すと弾く", async () => {
+  const result = await createUserAccount({
+    name: "変な値 三郎",
+    email: emailFor("bad-gender"),
+    role: "user",
+    gender: "unknown",
+  });
+  assert.equal(result.ok, false);
 });
 
 test("性別を選ばずにマッサージ師を登録するとエラーになり、User も作られない", async () => {
@@ -221,34 +263,54 @@ test("自分自身は削除できない", async () => {
   assert.match(result.ok ? "" : result.message, /自分自身/);
 });
 
-test("最後の管理者は削除できない", async () => {
-  const admins = await prisma.user.count({ where: { role: "admin", active: true } });
-  assert.equal(admins, 1, "シードの管理者が 1 人だけであること（前提）");
+test("有効な管理者が 1 人だけのとき、その管理者は削除できない", async () => {
+  // 他のテストが作った管理者の数に左右されないよう、u-admin 以外を一時的に無効にする
+  const others = await prisma.user.findMany({
+    where: { role: "admin", active: true, NOT: { id: "u-admin" } },
+  });
+  const otherIds = others.map((o) => o.id);
+  await prisma.user.updateMany({ where: { id: { in: otherIds } }, data: { active: false } });
 
-  // 別の管理者から消そうとしても、管理者が 0 人になる操作は通らない
-  const other = await createUserAccount({
+  try {
+    const refused = await deleteUserAccount("u1", "u-admin");
+    assert.equal(refused.ok, false);
+    assert.match(refused.ok ? "" : refused.message, /管理者が 0 人/);
+  } finally {
+    await prisma.user.updateMany({ where: { id: { in: otherIds } }, data: { active: true } });
+  }
+});
+
+test("管理者が 2 人以上いれば、片方は削除できる", async () => {
+  const extra = await createUserAccount({
     name: "別の管理者",
-    email: emailFor("admin2"),
+    email: emailFor("admin-extra"),
     role: "admin",
-    password: generatePassword(),
   });
-  assert.ok(other.ok);
+  assert.ok(extra.ok);
 
-  // ここで管理者は 2 人。片方は消せる
-  const ok = await deleteUserAccount("u-admin", other.user.id);
-  assert.equal(ok.ok, true);
+  const result = await deleteUserAccount("u-admin", extra.user.id);
+  assert.equal(result.ok, true);
+  assert.equal(await prisma.user.findUnique({ where: { id: extra.user.id } }), null);
+});
+test("パスワードを渡さなければサーバ側で自動的に作られ、その値でログインできる", async () => {
+  const email = emailFor("autopass");
+  // 画面（モーダル）からはパスワードを送らない。この呼び方が本番と同じ
+  const result = await createUserAccount({ name: "自動 太郎", email, role: "user" });
+  assert.ok(result.ok);
+  assert.ok(isValidPassword(result.password), `生成された値が条件を満たすこと: ${result.password}`);
 
-  // 残り 1 人になった状態で、その 1 人を消そうとすると拒否される
-  const again = await createUserAccount({
-    name: "別の管理者 2",
-    email: emailFor("admin3"),
-    role: "admin",
-    password: generatePassword(),
-  });
-  assert.ok(again.ok);
-  await prisma.user.update({ where: { id: again.user.id }, data: { active: false } });
+  const jar = memoryJar();
+  const loggedIn = await login(jar, email, result.password);
+  assert.equal(loggedIn.ok, true);
 
-  const refused = await deleteUserAccount(again.user.id, "u-admin");
-  assert.equal(refused.ok, false);
-  assert.match(refused.ok ? "" : refused.message, /管理者が 0 人/);
+  // 保存されているのはハッシュだけ
+  const saved = await prisma.user.findUnique({ where: { email } });
+  assert.notEqual(saved?.password, result.password);
+});
+
+test("自動で作られるパスワードは登録ごとに違う", async () => {
+  const a = await createUserAccount({ name: "自動 A", email: emailFor("auto-a"), role: "user" });
+  const b = await createUserAccount({ name: "自動 B", email: emailFor("auto-b"), role: "user" });
+  assert.ok(a.ok && b.ok);
+  assert.notEqual(a.password, b.password);
 });

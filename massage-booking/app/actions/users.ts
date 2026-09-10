@@ -42,7 +42,6 @@ export type CreateUserState = {
 export async function listUsers(): Promise<UserRow[]> {
   const me = await requireRole(["admin"]);
   const users = await prisma.user.findMany({
-    include: { therapist: true },
     orderBy: [{ role: "asc" }, { name: "asc" }],
   });
   const activeAdmins = users.filter((u) => u.role === "admin" && u.active).length;
@@ -54,7 +53,7 @@ export async function listUsers(): Promise<UserRow[]> {
       email: u.email,
       role: u.role,
       active: u.active,
-      gender: (u.therapist?.gender as Gender | undefined) ?? null,
+      gender: (u.gender as Gender | null) ?? null,
       history: await countUserHistory(u.id),
       // 実際の可否は deleteUserAccount でも確かめる。ここはボタンを出すかどうかの判断
       canDelete: u.id !== me.id && !(u.role === "admin" && u.active && activeAdmins <= 1),
@@ -74,13 +73,12 @@ export async function createUser(
     throw e;
   }
 
-  const password = String(formData.get("password") ?? "");
+  // 初期パスワードはフォームから受け取らない。lib/users.ts がサーバ側で作る
   const result = await createUserAccount({
     name: String(formData.get("name") ?? ""),
     email: String(formData.get("email") ?? ""),
     role: String(formData.get("role") ?? ""),
     gender: String(formData.get("gender") ?? ""),
-    password,
   });
 
   if (!result.ok) return { error: result.message, created: null };
@@ -96,7 +94,7 @@ export async function createUser(
       name: result.user.name,
       email: result.user.email,
       role: result.user.role,
-      password,
+      password: result.password,
     },
   };
 }

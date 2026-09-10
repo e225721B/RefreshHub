@@ -13,13 +13,6 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin: "管理者",
 };
 
-/** 権限を選ぶときの補足。何ができる人なのかを画面で示す */
-export const ROLE_NOTE: Record<Role, string> = {
-  user: "予約画面から自分の予約ができます。",
-  therapist: "自分の担当予約を確認できます。利用者としての予約もできます。",
-  admin: "予約状況・ユーザー管理など、管理者向けの画面をすべて開けます。",
-};
-
 export function isRole(value: string): value is Role {
   return (ROLES as readonly string[]).includes(value);
 }

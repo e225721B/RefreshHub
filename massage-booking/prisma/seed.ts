@@ -16,17 +16,18 @@ const SEED_PASSWORD = "password1234"; // pragma: allowlist secret
 const ADMIN = { id: "u-admin", name: "管理者", email: "admin@example.com" };
 
 // 要件 Q-3 に合わせる: 午前は女性 1 名 + 男性 3 名、午後は男性 3 名（既定パターンで表現する）
+// 性別は User が持つ（利用者・管理者も選べるため）。Therapist は勤務のことだけを持つ
 const THERAPIST_USERS = [
-  { id: "u-t1", name: "施術者 A", email: "therapist-a@example.com" },
-  { id: "u-t2", name: "施術者 B", email: "therapist-b@example.com" },
-  { id: "u-t3", name: "施術者 C", email: "therapist-c@example.com" },
-  { id: "u-t4", name: "施術者 D", email: "therapist-d@example.com" },
+  { id: "u-t1", name: "施術者 A", email: "therapist-a@example.com", gender: "female" },
+  { id: "u-t2", name: "施術者 B", email: "therapist-b@example.com", gender: "male" },
+  { id: "u-t3", name: "施術者 C", email: "therapist-c@example.com", gender: "male" },
+  { id: "u-t4", name: "施術者 D", email: "therapist-d@example.com", gender: "male" },
 ];
 const THERAPISTS = [
-  { id: "t1", userId: "u-t1", gender: "female" },
-  { id: "t2", userId: "u-t2", gender: "male" },
-  { id: "t3", userId: "u-t3", gender: "male" },
-  { id: "t4", userId: "u-t4", gender: "male" },
+  { id: "t1", userId: "u-t1" },
+  { id: "t2", userId: "u-t2" },
+  { id: "t3", userId: "u-t3" },
+  { id: "t4", userId: "u-t4" },
 ];
 
 // 動作確認用の利用者

@@ -8,8 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { createUser, type CreateUserState } from "@/app/actions/users";
-import { generatePassword, PASSWORD_MIN_LENGTH } from "@/lib/generate-password";
-import { GENDERS, GENDER_LABEL, ROLES, ROLE_LABEL, ROLE_NOTE, type Role } from "@/lib/roles";
+import { GENDERS, GENDER_LABEL, ROLES, ROLE_LABEL, type Role } from "@/lib/roles";
 
 const INITIAL: CreateUserState = { error: null, created: null };
 
@@ -43,6 +42,8 @@ function CreatedPanel({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  // 肩越しに覗かれないよう、初期パスワードは伏せ字で出す。必要なときだけ「表示」で開く
+  const [revealed, setRevealed] = useState(false);
 
   return (
     <div>
@@ -71,9 +72,20 @@ function CreatedPanel({
       <div className="mt-4">
         <p className={labelClass}>初期パスワード</p>
         <div className="mt-2 flex items-center gap-2">
-          <code className="flex-1 rounded-2xl border border-rose-200/70 bg-white px-4 py-3 font-mono text-[15px] tracking-wide text-stone-800 dark:border-white/15 dark:bg-white/5 dark:text-stone-100">
-            {created.password}
+          <code
+            aria-label={revealed ? "初期パスワード" : "初期パスワード（伏せ字）"}
+            className="flex-1 rounded-2xl border border-rose-200/70 bg-white px-4 py-3 font-mono text-[15px] tracking-wide text-stone-800 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+          >
+            {revealed ? created.password : "*".repeat(created.password.length)}
           </code>
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            aria-pressed={revealed}
+            className="rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
+          >
+            {revealed ? "隠す" : "表示"}
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -88,7 +100,7 @@ function CreatedPanel({
           </button>
         </div>
         <p className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
-          パスワードはハッシュ化して保存され、平文は残りません。
+          パスワードはハッシュ化して保存され、平文は残りません。伏せ字のままでもコピーできます。
           <strong>この画面を閉じると二度と表示できません。</strong>
           本人に手渡し／DM で伝えてください。
         </p>
@@ -118,7 +130,7 @@ export function AddUserDialog() {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateUserState, FormData>(createUser, INITIAL);
   const [role, setRole] = useState<Role>("user");
-  const [password, setPassword] = useState("");
+  const [gender, setGender] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
   // useActionState の結果は次の送信まで残るため、「もう確認した登録」を覚えておき、
@@ -137,18 +149,11 @@ export function AddUserDialog() {
     // close() は毎回作り直されるため依存配列を置かない（開いている間だけ登録し直す）
   });
 
-  /** ボタンから開く。初期パスワードはこのとき 1 つ用意する（管理者が自分で考えなくてよいように）。
-   * サーバ側では生成しないので、表示のずれ（ハイドレーション不一致）も起きない。 */
-  function openDialog() {
-    setPassword(generatePassword());
-    setOpen(true);
-  }
-
-  /** 入力欄を空に戻し、初期パスワードを引き直す */
+  /** 入力欄を空に戻す */
   function resetForm() {
     setAcknowledged(state.created?.email ?? null);
     setRole("user");
-    setPassword(generatePassword());
+    setGender("");
     formRef.current?.reset();
   }
 
@@ -162,7 +167,7 @@ export function AddUserDialog() {
     <>
       <button
         type="button"
-        onClick={openDialog}
+        onClick={() => setOpen(true)}
         className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 active:scale-[0.99]"
       >
         <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -237,7 +242,12 @@ export function AddUserDialog() {
                     id="user-role"
                     name="role"
                     value={role}
-                    onChange={(e) => setRole(e.target.value as Role)}
+                    onChange={(e) => {
+                      const next = e.target.value as Role;
+                      setRole(next);
+                      // マッサージ師は性別が必須。空のままでは登録できないので既定値を入れる
+                      if (next === "therapist" && gender === "") setGender("female");
+                    }}
                     className={inputClass}
                   >
                     {ROLES.map((r) => (
@@ -246,61 +256,31 @@ export function AddUserDialog() {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-stone-500 dark:text-stone-400">{ROLE_NOTE[role]}</p>
                 </div>
 
-                {/* 性別は Therapist に必須。利用者が「担当の性別」で絞り込むために使う */}
-                {role === "therapist" && (
-                  <div className="flex flex-col gap-2">
-                    <label htmlFor="user-gender" className={labelClass}>
-                      性別
-                    </label>
-                    <select
-                      id="user-gender"
-                      name="gender"
-                      defaultValue="female"
-                      className={inputClass}
-                    >
-                      {GENDERS.map((g) => (
-                        <option key={g} value={g}>
-                          {GENDER_LABEL[g]}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-stone-500 dark:text-stone-400">
-                      利用者が予約画面で担当の性別を絞り込むために使います。
-                    </p>
-                  </div>
-                )}
-
+                {/* 性別はどの権限でも選べる。マッサージ師だけは必須（担当の性別で絞り込むため） */}
                 <div className="flex flex-col gap-2">
-                  <label htmlFor="user-password" className={labelClass}>
-                    初期パスワード
+                  <label htmlFor="user-gender" className={labelClass}>
+                    性別
+                    {role !== "therapist" && (
+                      <span className="ml-1.5 text-xs font-normal text-stone-400">任意</span>
+                    )}
                   </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="user-password"
-                      name="password"
-                      type="text"
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      autoComplete="off"
-                      className={`${inputClass} font-mono tracking-wide`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setPassword(generatePassword())}
-                      className="shrink-0 rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
-                    >
-                      自動生成
-                    </button>
-                  </div>
-                  <p className="rounded-2xl bg-rose-50/60 px-4 py-3 text-xs leading-relaxed text-stone-600 dark:bg-white/5 dark:text-stone-400">
-                    {PASSWORD_MIN_LENGTH} 文字以上・英字と数字を含む。
-                    <br />
-                    登録するとハッシュ化して保存され、平文は保持されません。
-                  </p>
+                  <select
+                    id="user-gender"
+                    name="gender"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    className={inputClass}
+                  >
+                    {/* マッサージ師のときは「選ばない」を出さない */}
+                    {role !== "therapist" && <option value="">選ばない</option>}
+                    {GENDERS.map((g) => (
+                      <option key={g} value={g}>
+                        {GENDER_LABEL[g]}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {state.error && (

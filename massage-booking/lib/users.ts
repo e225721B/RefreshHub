@@ -5,22 +5,34 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { isValidPassword, PASSWORD_MIN_LENGTH } from "@/lib/generate-password";
+import { generatePassword, isValidPassword, PASSWORD_MIN_LENGTH } from "@/lib/generate-password";
 import { hashPassword } from "@/lib/password";
 import { isGender, isRole, type Role } from "@/lib/roles";
-import type { Gender } from "@/lib/slots";
 
 export type CreateUserInput = {
   name: string;
   email: string;
   role: string;
-  /** role が "therapist" のときだけ必要（Therapist.gender は必須のため） */
+  /**
+   * 性別。**どの権限でも選べる**（User が持つ）。
+   * マッサージ師だけは必須。利用者が「担当の性別」で空き枠を絞り込むのに使うため。
+   */
   gender?: string;
-  password: string;
+  /**
+   * 初期パスワード。**画面からは渡さない。**
+   * 省略するとここで自動生成する（管理者に決めさせず、弱いパスワードが生まれないようにするため）。
+   * テストで「決まった値でログインできるか」を確かめたいときだけ渡す。
+   */
+  password?: string;
 };
 
 export type CreateUserResult =
-  | { ok: true; user: { id: string; name: string; email: string; role: Role } }
+  | {
+      ok: true;
+      user: { id: string; name: string; email: string; role: Role };
+      /** 本人に渡すための平文。保存されるのはハッシュだけなので、ここでしか受け取れない */
+      password: string;
+    }
   | { ok: false; message: string };
 
 /** 表記ゆれとログインできない事故を防ぐため、メールアドレスは小文字に揃えて保存する */
@@ -42,8 +54,10 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
 
   const name = input.name.trim();
   const email = normalizeEmail(input.email);
-  const { role, password } = input;
+  const role = input.role;
   const gender = input.gender ?? "";
+  // 渡されなければサーバ側で作る。管理者が考える必要も、画面に平文を置く必要も無くなる
+  const password = input.password ?? generatePassword();
 
   if (!name) return fail("氏名を入力してください");
   if (!email) return fail("メールアドレスを入力してください");
@@ -51,6 +65,10 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
   if (!isRole(role)) return fail("権限を選んでください");
   if (role === "therapist" && !isGender(gender)) {
     return fail("マッサージ師は性別を選んでください（利用者が担当の性別で絞り込むため）");
+  }
+  // 利用者・管理者は性別を選ばなくてよい。選ぶなら値が正しいことだけ確かめる
+  if (gender !== "" && !isGender(gender)) {
+    return fail("性別の値が正しくありません");
   }
   if (!isValidPassword(password)) {
     return fail(`初期パスワードは ${PASSWORD_MIN_LENGTH} 文字以上で、英字と数字を含めてください`);
@@ -65,14 +83,21 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         // 平文は保存しない。保存するのは lib/password.ts のハッシュだけ
-        data: { name, email, password: hashPassword(password), role },
+        data: {
+          name,
+          email,
+          password: hashPassword(password),
+          role,
+          gender: isGender(gender) ? gender : null,
+        },
       });
       if (role === "therapist") {
-        await tx.therapist.create({ data: { userId: created.id, gender: gender as Gender } });
+        // Therapist は勤務のことだけを持つ。性別は User 側にある
+        await tx.therapist.create({ data: { userId: created.id } });
       }
       return created;
     });
-    return { ok: true, user: { id: user.id, name: user.name, email: user.email, role } };
+    return { ok: true, user: { id: user.id, name: user.name, email: user.email, role }, password };
   } catch (e) {
     // P2002 = 一意制約違反。この処理では email の重複しかありえない
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {

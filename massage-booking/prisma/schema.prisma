@@ -19,6 +19,7 @@ model User {
   email    String  @unique // ログイン ID
   password String // ハッシュ化済み（lib/password.ts）
   role     String // "user" | "therapist" | "admin"
+  gender   String? // "female" | "male"。任意。マッサージ師は登録時に必須（空き枠の絞り込みに使う）
   active   Boolean @default(true)
 
   therapist             Therapist?
@@ -28,12 +29,12 @@ model User {
   notifications         Notification[]
 }
 
-/// マッサージ師。表示名は User.name を使うため name は持たない。
+/// マッサージ師。表示名は User.name、性別は User.gender を使うため、ここには持たない
+/// （同じ情報を 2 か所に持たない）。この表は「勤務」に関することだけを扱う。
 model Therapist {
   id     String  @id @default(cuid())
   user   User    @relation(fields: [userId], references: [id])
   userId String  @unique
-  gender String // "female" | "male"
   active Boolean @default(true)
 
   workHours    TherapistWorkHours[]
