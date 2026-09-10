@@ -26,7 +26,7 @@ export type UserRow = {
   email: string;
   role: string;
   active: boolean;
-  gender: Gender | null;
+  gender: Gender;
   /** 削除したときに何が起きるかを画面で先に見せるために持つ */
   history: UserHistory;
   canDelete: boolean;
@@ -53,7 +53,7 @@ export async function listUsers(): Promise<UserRow[]> {
       email: u.email,
       role: u.role,
       active: u.active,
-      gender: (u.gender as Gender | null) ?? null,
+      gender: u.gender as Gender,
       history: await countUserHistory(u.id),
       // 実際の可否は deleteUserAccount でも確かめる。ここはボタンを出すかどうかの判断
       canDelete: u.id !== me.id && !(u.role === "admin" && u.active && activeAdmins <= 1),

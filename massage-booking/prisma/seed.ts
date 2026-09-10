@@ -13,10 +13,11 @@ const prisma = new PrismaClient();
 
 const SEED_PASSWORD = "password1234"; // pragma: allowlist secret
 
-const ADMIN = { id: "u-admin", name: "管理者", email: "admin@example.com" };
+// 性別は User が持ち、権限に関わらず必須。ここも仮名のサンプル値
+const ADMIN = { id: "u-admin", name: "管理者", email: "admin@example.com", gender: "female" };
 
 // 要件 Q-3 に合わせる: 午前は女性 1 名 + 男性 3 名、午後は男性 3 名（既定パターンで表現する）
-// 性別は User が持つ（利用者・管理者も選べるため）。Therapist は勤務のことだけを持つ
+// 性別は User が持つ（利用者・管理者も必須）。Therapist は勤務のことだけを持つ
 const THERAPIST_USERS = [
   { id: "u-t1", name: "施術者 A", email: "therapist-a@example.com", gender: "female" },
   { id: "u-t2", name: "施術者 B", email: "therapist-b@example.com", gender: "male" },
@@ -32,9 +33,9 @@ const THERAPISTS = [
 
 // 動作確認用の利用者
 const REGULAR_USERS = [
-  { id: "u1", name: "利用者 一郎", email: "user1@example.com" },
-  { id: "u2", name: "利用者 二郎", email: "user2@example.com" },
-  { id: "u3", name: "利用者 三郎", email: "user3@example.com" },
+  { id: "u1", name: "利用者 一郎", email: "user1@example.com", gender: "male" },
+  { id: "u2", name: "利用者 二郎", email: "user2@example.com", gender: "male" },
+  { id: "u3", name: "利用者 三郎", email: "user3@example.com", gender: "female" },
 ];
 
 // 要件では扉 1 つ・ベッド 3 台。R-1（午前は施術者 4 名だがベッド 3 台）は未確認のため、

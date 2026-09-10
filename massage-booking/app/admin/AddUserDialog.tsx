@@ -188,12 +188,7 @@ function AddUserForm({ onAddMore, onClose }: { onAddMore: () => void; onClose: (
           id="user-role"
           name="role"
           value={role}
-          onChange={(e) => {
-            const next = e.target.value as Role;
-            setRole(next);
-            // マッサージ師は性別が必須。空のままでは登録できないので既定値を入れる
-            if (next === "therapist" && gender === "") setGender("female");
-          }}
+          onChange={(e) => setRole(e.target.value as Role)}
           className={inputClass}
         >
           {ROLES.map((r) => (
@@ -204,23 +199,21 @@ function AddUserForm({ onAddMore, onClose }: { onAddMore: () => void; onClose: (
         </select>
       </div>
 
-      {/* 性別はどの権限でも選べる。マッサージ師だけは必須（担当の性別で絞り込むため） */}
+      {/* 性別はどの権限でも必須。既定値を入れず、管理者に必ず選ばせる */}
       <div className="flex flex-col gap-2">
         <label htmlFor="user-gender" className={labelClass}>
           性別
-          {role !== "therapist" && (
-            <span className="ml-1.5 text-xs font-normal text-stone-400">任意</span>
-          )}
         </label>
         <select
           id="user-gender"
           name="gender"
+          required
           value={gender}
           onChange={(e) => setGender(e.target.value)}
           className={inputClass}
         >
-          {/* マッサージ師のときは「選ばない」を出さない */}
-          {role !== "therapist" && <option value="">選ばない</option>}
+          {/* 空の選択肢を残すことで、選ばずに送信すると required で止まる */}
+          <option value="">選んでください</option>
           {GENDERS.map((g) => (
             <option key={g} value={g}>
               {GENDER_LABEL[g]}

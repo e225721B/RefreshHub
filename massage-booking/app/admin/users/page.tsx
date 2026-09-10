@@ -61,7 +61,7 @@ export default async function AdminUsersPage() {
                   {isRole(u.role) ? ROLE_LABEL[u.role] : u.role}
                 </td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">
-                  {u.gender && isGender(u.gender) ? GENDER_LABEL[u.gender] : "—"}
+                  {isGender(u.gender) ? GENDER_LABEL[u.gender] : u.gender}
                 </td>
                 <td className="border border-black/10 px-3 py-2 tabular-nums dark:border-white/15">
                   {u.history.reservations + u.history.assignments + u.history.others === 0 ? (

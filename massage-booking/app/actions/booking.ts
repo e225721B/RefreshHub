@@ -71,8 +71,8 @@ async function slotsForDate(
   return getAvailableSlots({
     shifts,
     beds,
-    // 性別は User が持つ（利用者・管理者も選べるため）。未設定なら性別での絞り込みには出てこない
-    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender ?? "" })),
+    // 性別は User が持つ（利用者・管理者も登録する）。全員必須なので未設定は無い
+    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender })),
     reservations: reservationWindows,
     treatmentMin,
     genders,

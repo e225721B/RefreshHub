@@ -55,7 +55,7 @@ test("利用者を登録すると、そのアカウントでログインでき�
   const email = emailFor("newuser");
   const password = generatePassword();
 
-  const result = await createUserAccount({ name: "追加 太郎", email, role: "user", password });
+  const result = await createUserAccount({ name: "追加 太郎", email, gender: "female", role: "user", password });
   assert.equal(result.ok, true);
 
   const jar = memoryJar();
@@ -66,7 +66,7 @@ test("利用者を登録すると、そのアカウントでログインでき�
 test("パスワードは平文で保存されない", async () => {
   const email = emailFor("hashed");
   const password = generatePassword();
-  await createUserAccount({ name: "追加 花子", email, role: "user", password });
+  await createUserAccount({ name: "追加 花子", email, gender: "female", role: "user", password });
 
   const saved = await prisma.user.findUnique({ where: { email } });
   assert.ok(saved);
@@ -93,7 +93,7 @@ test("マッサージ師を登録すると Therapist も同時に作られる", 
   assert.equal(saved?.therapist?.active, true);
 });
 
-test("利用者・管理者も性別を選べる。選ばなければ空のままにできる", async () => {
+test("利用者・管理者にも性別が保存される", async () => {
   const withGender = await createUserAccount({
     name: "性別あり 一郎",
     email: emailFor("user-with-gender"),
@@ -111,15 +111,6 @@ test("利用者・管理者も性別を選べる。選ばなければ空のま�
   });
   assert.ok(admin.ok);
   assert.equal((await prisma.user.findUnique({ where: { id: admin.user.id } }))?.gender, "female");
-
-  // 選ばなければ null（利用者・管理者は任意）
-  const without = await createUserAccount({
-    name: "性別なし 二郎",
-    email: emailFor("user-no-gender"),
-    role: "user",
-  });
-  assert.ok(without.ok);
-  assert.equal((await prisma.user.findUnique({ where: { id: without.user.id } }))?.gender, null);
 });
 
 test("性別に知らない値を渡すと弾く", async () => {
@@ -132,16 +123,20 @@ test("性別に知らない値を渡すと弾く", async () => {
   assert.equal(result.ok, false);
 });
 
-test("性別を選ばずにマッサージ師を登録するとエラーになり、User も作られない", async () => {
-  const email = emailFor("nogender");
-  const result = await createUserAccount({
-    name: "施術者 Y",
-    email,
-    role: "therapist",
-    password: generatePassword(),
-  });
-  assert.equal(result.ok, false);
-  assert.equal(await prisma.user.findUnique({ where: { email } }), null);
+test("性別を選ばないとどの権限でもエラーになり、User も作られない", async () => {
+  for (const role of ["user", "admin", "therapist"]) {
+    const email = emailFor(`nogender-${role}`);
+    const result = await createUserAccount({
+      name: "性別なし Y",
+      email,
+      role,
+      gender: "",
+      password: generatePassword(),
+    });
+    assert.equal(result.ok, false, `${role} は性別なしで登録できないこと`);
+    assert.match(result.ok ? "" : result.message, /性別/);
+    assert.equal(await prisma.user.findUnique({ where: { email } }), null);
+  }
 });
 
 test("同じメールアドレスは 2 回登録できない", async () => {
@@ -149,6 +144,7 @@ test("同じメールアドレスは 2 回登録できない", async () => {
   const first = await createUserAccount({
     name: "重複 一郎",
     email,
+    gender: "female",
     role: "user",
     password: generatePassword(),
   });
@@ -157,6 +153,7 @@ test("同じメールアドレスは 2 回登録できない", async () => {
   const second = await createUserAccount({
     name: "重複 二郎",
     email,
+    gender: "female",
     role: "user",
     password: generatePassword(),
   });
@@ -167,7 +164,7 @@ test("同じメールアドレスは 2 回登録できない", async () => {
 test("メールアドレスは大文字で入力しても小文字で保存され、小文字でログインできる", async () => {
   const email = emailFor("MixedCase");
   const password = generatePassword();
-  await createUserAccount({ name: "大文字 三郎", email, role: "user", password });
+  await createUserAccount({ name: "大文字 三郎", email, gender: "female", role: "user", password });
 
   const jar = memoryJar();
   const loggedIn = await login(jar, email.toLowerCase(), password);
@@ -178,6 +175,7 @@ test("弱いパスワード・不正なメールアドレス・不明な権限�
   const weak = await createUserAccount({
     name: "弱い 四郎",
     email: emailFor("weak"),
+    gender: "female",
     role: "user",
     password: "abc",
   });
@@ -186,6 +184,7 @@ test("弱いパスワード・不正なメールアドレス・不明な権限�
   const badEmail = await createUserAccount({
     name: "不正 五郎",
     email: "not-an-email",
+    gender: "female",
     role: "user",
     password: generatePassword(),
   });
@@ -194,6 +193,7 @@ test("弱いパスワード・不正なメールアドレス・不明な権限�
   const badRole = await createUserAccount({
     name: "不明 六郎",
     email: emailFor("badrole"),
+    gender: "female",
     role: "superuser",
     password: generatePassword(),
   });
@@ -205,6 +205,7 @@ test("予約が無いユーザーは DB から完全に削除される", async (
   const created = await createUserAccount({
     name: "削除 太郎",
     email,
+    gender: "female",
     role: "user",
     password: generatePassword(),
   });
@@ -237,7 +238,8 @@ test("マッサージ師を削除すると Therapist の行も一緒に消える
 test("予約があるユーザーは削除されず無効になり、ログインできなくなる", async () => {
   const email = emailFor("hashistory");
   const password = generatePassword();
-  const created = await createUserAccount({ name: "実績 花子", email, role: "user", password });
+  const created = await createUserAccount({ name: "実績 花子", email, gender: "female",
+    role: "user", password });
   assert.ok(created.ok);
   await createReservationFor(created.user.id);
 
@@ -342,6 +344,7 @@ test("管理者が 2 人以上いれば、片方は削除できる", async () =>
   const extra = await createUserAccount({
     name: "別の管理者",
     email: emailFor("admin-extra"),
+    gender: "female",
     role: "admin",
   });
   assert.ok(extra.ok);
@@ -353,7 +356,8 @@ test("管理者が 2 人以上いれば、片方は削除できる", async () =>
 test("パスワードを渡さなければサーバ側で自動的に作られ、その値でログインできる", async () => {
   const email = emailFor("autopass");
   // 画面（モーダル）からはパスワードを送らない。この呼び方が本番と同じ
-  const result = await createUserAccount({ name: "自動 太郎", email, role: "user" });
+  const result = await createUserAccount({ name: "自動 太郎", email, gender: "female",
+    role: "user" });
   assert.ok(result.ok);
   assert.ok(isValidPassword(result.password), `生成された値が条件を満たすこと: ${result.password}`);
 
@@ -367,8 +371,10 @@ test("パスワードを渡さなければサーバ側で自動的に作られ�
 });
 
 test("自動で作られるパスワードは登録ごとに違う", async () => {
-  const a = await createUserAccount({ name: "自動 A", email: emailFor("auto-a"), role: "user" });
-  const b = await createUserAccount({ name: "自動 B", email: emailFor("auto-b"), role: "user" });
+  const a = await createUserAccount({ name: "自動 A", email: emailFor("auto-a"), gender: "female",
+    role: "user" });
+  const b = await createUserAccount({ name: "自動 B", email: emailFor("auto-b"), gender: "female",
+    role: "user" });
   assert.ok(a.ok && b.ok);
   assert.notEqual(a.password, b.password);
 });

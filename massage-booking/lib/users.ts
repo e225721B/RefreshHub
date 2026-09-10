@@ -14,10 +14,10 @@ export type CreateUserInput = {
   email: string;
   role: string;
   /**
-   * 性別。**どの権限でも選べる**（User が持つ）。
-   * マッサージ師だけは必須。利用者が「担当の性別」で空き枠を絞り込むのに使うため。
+   * 性別。**どの権限でも必須**（User が持つ）。
+   * マッサージ師の場合は、利用者が「担当の性別」で空き枠を絞り込むのにも使う。
    */
-  gender?: string;
+  gender: string;
   /**
    * 初期パスワード。**画面からは渡さない。**
    * 省略するとここで自動生成する（管理者に決めさせず、弱いパスワードが生まれないようにするため）。
@@ -55,7 +55,7 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
   const name = input.name.trim();
   const email = normalizeEmail(input.email);
   const role = input.role;
-  const gender = input.gender ?? "";
+  const gender = input.gender.trim();
   // 渡されなければサーバ側で作る。管理者が考える必要も、画面に平文を置く必要も無くなる
   const password = input.password ?? generatePassword();
 
@@ -63,13 +63,9 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
   if (!email) return fail("メールアドレスを入力してください");
   if (!isValidEmail(email)) return fail("メールアドレスの形式が正しくありません");
   if (!isRole(role)) return fail("権限を選んでください");
-  if (role === "therapist" && !isGender(gender)) {
-    return fail("マッサージ師は性別を選んでください（利用者が担当の性別で絞り込むため）");
-  }
-  // 利用者・管理者は性別を選ばなくてよい。選ぶなら値が正しいことだけ確かめる
-  if (gender !== "" && !isGender(gender)) {
-    return fail("性別の値が正しくありません");
-  }
+  // 性別はどの権限でも必須。空のまま登録できると、あとから埋め直す手間が残る
+  if (gender === "") return fail("性別を選んでください");
+  if (!isGender(gender)) return fail("性別の値が正しくありません");
   if (!isValidPassword(password)) {
     return fail(`初期パスワードは ${PASSWORD_MIN_LENGTH} 文字以上で、英字と数字を含めてください`);
   }
@@ -88,7 +84,7 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
           email,
           password: hashPassword(password),
           role,
-          gender: isGender(gender) ? gender : null,
+          gender,
         },
       });
       if (role === "therapist") {

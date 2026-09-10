@@ -19,7 +19,7 @@ model User {
   email    String  @unique // ログイン ID
   password String // ハッシュ化済み（lib/password.ts）
   role     String // "user" | "therapist" | "admin"
-  gender   String? // "female" | "male"。任意。マッサージ師は登録時に必須（空き枠の絞り込みに使う）
+  gender   String // "female" | "male"。全員必須（マッサージ師は空き枠の絞り込みに使う）
   active   Boolean @default(true)
 
   therapist             Therapist?
