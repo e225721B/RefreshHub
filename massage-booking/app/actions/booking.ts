@@ -40,52 +40,15 @@ function dayRange(date: string): { start: Date; end: Date } {
   return { start, end };
 }
 
-/** 1 日ぶんの空き枠を返す */
-async function slotsForDate(
-  date: string,
-  treatmentMin: number,
-  genders: Gender[],
-): Promise<Slot[]> {
-  const { start, end } = dayRange(date);
-  const [therapists, workHours, absences, beds, reservations] = await Promise.all([
-    // Therapist.active は「受付中かどうか」、User.active は「アカウントが有効かどうか」の別の話。
-    // 無効化したアカウント（deleteUserAccount の「無効化」）が担当候補に残らないよう両方を見る
-    prisma.therapist.findMany({
-      where: { active: true, user: { active: true } },
-      include: { user: true },
-    }),
-    prisma.therapistWorkHours.findMany(),
-    prisma.therapistAbsence.findMany(),
-    prisma.bed.findMany({ where: { active: true }, orderBy: { id: "asc" } }),
-    prisma.reservation.findMany({
-      where: { status: "booked", startAt: { gte: start, lt: end } },
-    }),
-  ]);
-
-  const shifts = resolveShiftsForDate({ date, therapists, workHours, absences });
-  const reservationWindows = reservations.map((r) => ({
-    bedId: r.bedId,
-    therapistId: r.therapistId,
-    startTime: hhmmOfLocal(r.startAt),
-    blockEndTime: hhmmOfLocal(r.endAt),
-  }));
-
-  return getAvailableSlots({
-    shifts,
-    beds,
-    // 性別は User が持つ（利用者・管理者も登録する）。全員必須なので未設定は無い
-    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender })),
-    reservations: reservationWindows,
-    treatmentMin,
-    genders,
-  });
-}
-
 /**
  * 週表示のためのデータ。
  * 施術時間は画面のドラッグで決まるため、15 / 30 / 45 分すべてぶんの空き状況を
  * まとめて返す。日付 → 施術時間 → 開始時刻 → 空き枠、の順で引ける。
  * （AC-1 / AC-3 / AC-4）
+ *
+ * DB へは週ぶんまとめて 1 回ずつ（5 クエリ）だけアクセスし、日付・施術時間ごとの絞り込みは
+ * 取得済みのデータをメモリ上でフィルタして行う（以前は日付 × 施術時間の組み合わせ、つまり
+ * 平日 5 日 × 3 コース = 15 回、毎回 DB を叩いていた）。
  */
 export type WeekAvailability = Record<string, Record<number, Record<string, Slot>>>;
 
@@ -97,23 +60,62 @@ export async function fetchWeekAvailability(
   const normalized = normalizeGenders(genders);
   const dates = weekdaysFrom(mondayStr);
 
-  const perDay = await Promise.all(
-    dates.map(async (date) => {
-      const byTreatment: Record<number, Record<string, Slot>> = {};
-      for (const treatmentMin of TREATMENT_OPTIONS) {
-        const slots = await slotsForDate(date, treatmentMin, normalized);
-        const byTime: Record<string, Slot> = {};
-        for (const slot of slots) byTime[slot.startTime] = slot;
-        byTreatment[treatmentMin] = byTime;
-      }
-      return byTreatment;
+  const weekStart = toDateTime(dates[0], "00:00");
+  const weekEnd = toDateTime(dates[dates.length - 1], "00:00");
+  weekEnd.setDate(weekEnd.getDate() + 1);
+
+  const [therapists, workHours, absences, beds, reservations] = await Promise.all([
+    // Therapist.active は「受付中かどうか」、User.active は「アカウントが有効かどうか」の別の話。
+    // 無効化したアカウント（deleteUserAccount の「無効化」）が担当候補に残らないよう両方を見る
+    prisma.therapist.findMany({
+      where: { active: true, user: { active: true } },
+      include: { user: true },
     }),
-  );
+    prisma.therapistWorkHours.findMany(),
+    prisma.therapistAbsence.findMany({
+      where: { startAt: { lt: weekEnd }, endAt: { gt: weekStart } },
+    }),
+    prisma.bed.findMany({ where: { active: true }, orderBy: { id: "asc" } }),
+    prisma.reservation.findMany({
+      where: { status: "booked", startAt: { gte: weekStart, lt: weekEnd } },
+    }),
+  ]);
+
+  // 性別は User が持つ（利用者・管理者も登録する）。全員必須なので未設定は無い
+  const therapistSlots = therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender }));
 
   const result: WeekAvailability = {};
-  dates.forEach((date, i) => {
-    result[date] = perDay[i];
-  });
+
+  for (const date of dates) {
+    const { start, end } = dayRange(date);
+    const dayAbsences = absences.filter((a) => a.startAt < end && a.endAt > start);
+    const dayReservations = reservations.filter((r) => r.startAt >= start && r.startAt < end);
+
+    const shifts = resolveShiftsForDate({ date, therapists, workHours, absences: dayAbsences });
+    const reservationWindows = dayReservations.map((r) => ({
+      bedId: r.bedId,
+      therapistId: r.therapistId,
+      startTime: hhmmOfLocal(r.startAt),
+      blockEndTime: hhmmOfLocal(r.endAt),
+    }));
+
+    const byTreatment: Record<number, Record<string, Slot>> = {};
+    for (const treatmentMin of TREATMENT_OPTIONS) {
+      const slots = getAvailableSlots({
+        shifts,
+        beds,
+        therapists: therapistSlots,
+        reservations: reservationWindows,
+        treatmentMin,
+        genders: normalized,
+      });
+      const byTime: Record<string, Slot> = {};
+      for (const slot of slots) byTime[slot.startTime] = slot;
+      byTreatment[treatmentMin] = byTime;
+    }
+    result[date] = byTreatment;
+  }
+
   return result;
 }
 
