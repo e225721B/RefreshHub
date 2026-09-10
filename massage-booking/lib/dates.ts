@@ -39,6 +39,13 @@ export function weekdaysFrom(mondayStr: string): string[] {
   });
 }
 
+/** 日をずらす（offset は日単位。-1 で前日、+1 で翌日） */
+export function shiftDate(dateStr: string, offset: number): string {
+  const d = fromDateString(dateStr);
+  d.setDate(d.getDate() + offset);
+  return toDateString(d);
+}
+
 /** 週をずらす（offset は週単位。-1 で前週、+1 で翌週） */
 export function shiftWeek(mondayStr: string, offset: number): string {
   const d = fromDateString(mondayStr);

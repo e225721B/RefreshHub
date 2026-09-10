@@ -48,7 +48,12 @@ async function slotsForDate(
 ): Promise<Slot[]> {
   const { start, end } = dayRange(date);
   const [therapists, workHours, absences, beds, reservations] = await Promise.all([
-    prisma.therapist.findMany({ where: { active: true }, include: { user: true } }),
+    // Therapist.active は「受付中かどうか」、User.active は「アカウントが有効かどうか」の別の話。
+    // 無効化したアカウント（deleteUserAccount の「無効化」）が担当候補に残らないよう両方を見る
+    prisma.therapist.findMany({
+      where: { active: true, user: { active: true } },
+      include: { user: true },
+    }),
     prisma.therapistWorkHours.findMany(),
     prisma.therapistAbsence.findMany(),
     prisma.bed.findMany({ where: { active: true }, orderBy: { id: "asc" } }),
@@ -68,7 +73,8 @@ async function slotsForDate(
   return getAvailableSlots({
     shifts,
     beds,
-    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.gender })),
+    // 性別は User が持つ（利用者・管理者も登録する）。全員必須なので未設定は無い
+    therapists: therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender })),
     reservations: reservationWindows,
     treatmentMin,
     genders,
