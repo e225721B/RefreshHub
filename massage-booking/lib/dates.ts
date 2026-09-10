@@ -46,6 +46,13 @@ export function shiftWeek(mondayStr: string, offset: number): string {
   return toDateString(d);
 }
 
+/** 日付を n 日ずらす（n はマイナス可） */
+export function addDays(dateStr: string, n: number): string {
+  const d = fromDateString(dateStr);
+  d.setDate(d.getDate() + n);
+  return toDateString(d);
+}
+
 /** "2026-09-08" -> "9/8(火)" */
 export function formatShort(dateStr: string): string {
   const d = fromDateString(dateStr);

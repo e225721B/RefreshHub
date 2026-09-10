@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { login as loginUser, logout as logoutUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUser, login as loginUser, logout as logoutUser, nextCookieJar } from "@/lib/session";
 
 export type LoginState = { error: string | null };
 
@@ -26,10 +26,17 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   }
 
   // 照合とCookieの発行は lib/session.ts に任せる（F-6 で実装済み・テスト済み）
-  const result = await loginUser(await nextCookieJar(), email, password);
+  const jar = await nextCookieJar();
+  const result = await loginUser(jar, email, password);
   if (!result.ok) return { error: result.message };
 
-  // 成功したら予約画面へ送る
+  // next が指定されていない（＝ /login を直接開いた）場合、マッサージ師は
+  // 予約画面を挟まず /therapist へ直接送る。next が指定されているとき
+  // （例: /therapist から未ログインで弾かれた場合の ?next=%2Ftherapist）はそちらを優先する。
+  if (next === "/") {
+    const user = await getCurrentUser(jar);
+    if (user?.role === "therapist") redirect("/therapist");
+  }
   redirect(next);
 }
 

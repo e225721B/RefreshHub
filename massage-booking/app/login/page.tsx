@@ -134,6 +134,11 @@ export default async function LoginPage({
             <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
               admin@example.com
             </code>
+            {" / "}
+            マッサージ師{" "}
+            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
+              therapist-a@example.com
+            </code>
           </p>
           <p className="mt-1">
             パスワードは共通で{" "}

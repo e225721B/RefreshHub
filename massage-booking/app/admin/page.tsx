@@ -71,6 +71,9 @@ export default async function AdminPage({
           <Link href="/" className="text-sm underline underline-offset-4">
             予約画面へ戻る
           </Link>
+          <Link href="/therapist" className="text-sm underline underline-offset-4">
+            マッサージ師向け画面を見る
+          </Link>
           <UserBar user={user} />
         </div>
       </header>

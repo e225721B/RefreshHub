@@ -25,6 +25,11 @@ export default async function Home({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-4">
+          {(user.role === "therapist" || user.role === "admin") && (
+            <Link href="/therapist" className="text-sm underline underline-offset-4">
+              マッサージ師向け: 自分の予約を見る
+            </Link>
+          )}
           {user.role === "admin" && (
             <Link href="/admin" className="text-sm underline underline-offset-4">
               管理者向け: 予約状況を見る
