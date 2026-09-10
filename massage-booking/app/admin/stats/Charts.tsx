@@ -77,7 +77,7 @@ export function PeriodChart({
 
       <div className="overflow-x-auto pt-12">
         <div className="min-w-[480px]">
-          <div className="relative flex h-56 items-end gap-1 pl-10">
+          <div className="relative flex h-48 items-end gap-1 pl-10 sm:h-56">
             {/* 目盛り線。数字より薄くして、棒より奥に見えるようにする */}
             {[0, 0.5, 1].map((t) => (
               <div
@@ -97,8 +97,12 @@ export function PeriodChart({
                 key={p.key}
                 className="group relative flex h-full flex-1 items-end justify-center gap-[2px]"
               >
-                {/* 吹き出し。棒が細くて数字を書けないぶんをここで補う */}
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-800 px-2.5 py-1.5 text-[11px] leading-tight text-white shadow-lg group-hover:block dark:bg-stone-700">
+                {/*
+                  吹き出し。棒が細くて数字を書けないぶんをここで補う。
+                  タッチ端末には hover が無いので group-active（指を置いている間）でも出す。
+                  それでも読み取りづらいので、下の「数字で見る」の表を必ず残す。
+                */}
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-800 px-2.5 py-1.5 text-[11px] leading-tight text-white shadow-lg group-hover:block group-active:block dark:bg-stone-700">
                   <div className="font-semibold">{p.label}</div>
                   <div className="tabular-nums">予約 {p.reservations} 件</div>
                   {showUniqueUsers && <div className="tabular-nums">利用者 {p.uniqueUsers} 人</div>}
@@ -229,8 +233,8 @@ export function HorizontalBarChart({
   return (
     <div className="flex flex-col gap-1.5">
       {rows.map((r) => (
-        <div key={r.key} className="flex items-center gap-3 text-sm">
-          <span className="w-14 shrink-0 text-right tabular-nums text-black/60 dark:text-white/60">
+        <div key={r.key} className="flex items-center gap-2 text-sm sm:gap-3">
+          <span className="w-12 shrink-0 text-right tabular-nums text-black/60 sm:w-14 dark:text-white/60">
             {r.label}
           </span>
           <span
@@ -245,7 +249,7 @@ export function HorizontalBarChart({
               }}
             />
           </span>
-          <span className="w-20 shrink-0 tabular-nums text-black/70 dark:text-white/70">
+          <span className="w-16 shrink-0 tabular-nums text-black/70 sm:w-20 dark:text-white/70">
             {r.count} {unit}
             {total > 0 && r.count > 0 && (
               <span className="ml-1 text-xs text-black/40 dark:text-white/40">

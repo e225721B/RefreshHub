@@ -41,7 +41,7 @@ export function UserActions({ user }: { user: UserRow }) {
             <input type="hidden" name="userId" value={user.id} />
             <SubmitButton
               label="有効に戻す"
-              className="rounded-full border border-black/15 px-3 py-1 text-xs transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
+              className="rounded-full border border-black/15 px-3 py-1.5 text-xs whitespace-nowrap transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
             />
           </form>
         )}
@@ -52,7 +52,7 @@ export function UserActions({ user }: { user: UserRow }) {
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              className="rounded-full border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+              className="rounded-full border border-rose-300 px-3 py-1.5 text-xs font-medium whitespace-nowrap text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
             >
               削除
             </button>
@@ -71,14 +71,14 @@ export function UserActions({ user }: { user: UserRow }) {
 
       {confirming && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-rose-950/30 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-rose-950/30 p-4 backdrop-blur-sm sm:items-center"
           onClick={() => setConfirming(false)}
         >
           <div
             role="dialog"
             aria-modal="true"
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-[1.75rem] border border-white/70 bg-white p-7 text-left shadow-2xl dark:border-white/10 dark:bg-stone-900"
+            className="my-4 w-full max-w-md rounded-[1.75rem] border border-white/70 bg-white p-5 text-left shadow-2xl sm:my-8 sm:p-7 dark:border-white/10 dark:bg-stone-900"
           >
             <h2 className="text-lg font-bold text-stone-800 dark:text-stone-50">
               {user.name} さんを削除しますか？
@@ -105,7 +105,7 @@ export function UserActions({ user }: { user: UserRow }) {
             <form
               action={deleteAction}
               onSubmit={() => setConfirming(false)}
-              className="mt-6 flex justify-end gap-3"
+              className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"
             >
               <input type="hidden" name="userId" value={user.id} />
               <button

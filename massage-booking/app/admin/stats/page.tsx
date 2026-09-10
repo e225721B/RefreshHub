@@ -5,7 +5,7 @@ import { formatShort, fromDateString, shiftDate, toDateString, todayString } fro
 import { ROLE_LABEL, isRole } from "@/lib/roles";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { formatMinutes, normalizeRange } from "@/lib/stats";
-import { UserBar } from "../../UserBar";
+import { AdminHeader } from "../AdminHeader";
 import { HorizontalBarChart, PeriodChart } from "./Charts";
 
 export const metadata = {
@@ -49,47 +49,35 @@ export default async function AdminStatsPage({
   const { summary } = stats;
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">集計</h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <Link href="/admin" className="text-sm underline underline-offset-4">
-            予約状況へ戻る
-          </Link>
-          <Link href="/admin/users" className="text-sm underline underline-offset-4">
-            ユーザー管理
-          </Link>
-          <UserBar user={user} />
-        </div>
-      </header>
+    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+      <AdminHeader title="集計" current="/admin/stats" user={user} />
 
       {/* --- 期間指定 --------------------------------------------------- */}
-      <section className="mb-8 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-5 py-4 dark:border-white/10 dark:bg-white/5">
-        <form className="flex flex-wrap items-end gap-3" action="/admin/stats">
-          <label className="flex flex-col gap-1.5 text-sm">
+      <section className="mb-8 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-4 py-4 sm:px-5 dark:border-white/10 dark:bg-white/5">
+        {/* 狭い画面では開始日・終了日を半分ずつ並べ、ボタンを次の行へ落とす */}
+        <form className="flex flex-wrap items-end gap-x-3 gap-y-3" action="/admin/stats">
+          <label className="flex flex-1 flex-col gap-1.5 text-sm sm:flex-none">
             <span className="font-medium">開始日</span>
             <input
               type="date"
               name="from"
               defaultValue={range.from}
-              className="rounded-2xl border border-rose-200/70 bg-white px-4 py-2.5 text-sm text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+              className="w-full rounded-2xl border border-rose-200/70 bg-white px-3 py-2.5 text-base text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 sm:w-auto sm:px-4 sm:text-sm dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
             />
           </label>
           <span className="pb-3 text-sm text-black/40 dark:text-white/40">〜</span>
-          <label className="flex flex-col gap-1.5 text-sm">
+          <label className="flex flex-1 flex-col gap-1.5 text-sm sm:flex-none">
             <span className="font-medium">終了日</span>
             <input
               type="date"
               name="to"
               defaultValue={range.to}
-              className="rounded-2xl border border-rose-200/70 bg-white px-4 py-2.5 text-sm text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+              className="w-full rounded-2xl border border-rose-200/70 bg-white px-3 py-2.5 text-base text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 sm:w-auto sm:px-4 sm:text-sm dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
             />
           </label>
           <button
             type="submit"
-            className="rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl"
+            className="w-full rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl sm:w-auto"
           >
             集計する
           </button>
@@ -105,8 +93,8 @@ export default async function AdminStatsPage({
                 aria-current={selected ? "true" : undefined}
                 className={
                   selected
-                    ? "rounded-full bg-stone-800 px-3.5 py-1.5 text-xs font-semibold text-white dark:bg-white dark:text-stone-900"
-                    : "rounded-full border border-black/15 px-3.5 py-1.5 text-xs transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
+                    ? "rounded-full bg-stone-800 px-3.5 py-2 text-xs font-semibold text-white dark:bg-white dark:text-stone-900"
+                    : "rounded-full border border-black/15 px-3.5 py-2 text-xs transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
                 }
               >
                 {p.label}
@@ -118,7 +106,7 @@ export default async function AdminStatsPage({
 
       {/* --- 集計値 ----------------------------------------------------- */}
       <section className="mb-10">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3">
           <StatTile
             label="ユニーク利用者数"
             value={`${summary.uniqueUsers}`}
@@ -153,7 +141,7 @@ export default async function AdminStatsPage({
 
       {/* --- 期間別グラフ ------------------------------------------------ */}
       <section className="mb-10">
-        <h2 className="mb-1 text-lg font-semibold">期間別の利用</h2>
+        <h2 className="mb-1 text-base font-semibold sm:text-lg">期間別の利用</h2>
 
         {/*
           「1 人あたり週 1 回まで」は福利厚生の運用ルールで、予約時にシステムで止めていない。
@@ -176,7 +164,7 @@ export default async function AdminStatsPage({
       {/* --- 時間帯別 / ベッド別 ------------------------------------------ */}
       <section className="mb-10 grid gap-8 md:grid-cols-2">
         <div>
-          <h2 className="mb-1 text-lg font-semibold">時間帯別の利用</h2>
+          <h2 className="mb-1 text-base font-semibold sm:text-lg">時間帯別の利用</h2>
           <p className="mb-3 text-sm text-black/60 dark:text-white/60">
             施術を始めた時刻で数えています。14 時台は休憩のため 0 件です。
           </p>
@@ -186,7 +174,7 @@ export default async function AdminStatsPage({
           />
         </div>
         <div>
-          <h2 className="mb-1 text-lg font-semibold">ベッド別の利用</h2>
+          <h2 className="mb-1 text-base font-semibold sm:text-lg">ベッド別の利用</h2>
           <p className="mb-3 text-sm text-black/60 dark:text-white/60">
             偏りが大きいときは、案内の順番か割り当ての決め方を見直す材料になります。
           </p>
@@ -199,7 +187,7 @@ export default async function AdminStatsPage({
 
       {/* --- 一覧表（利用者名から A-4 = /admin/users へ） --------------------- */}
       <section>
-        <h2 className="mb-1 text-lg font-semibold">利用者別の一覧</h2>
+        <h2 className="mb-1 text-base font-semibold sm:text-lg">利用者別の一覧</h2>
 
         {stats.users.length === 0 ? (
           <p className="rounded-2xl border border-black/10 px-5 py-8 text-center text-sm text-black/50 dark:border-white/15 dark:text-white/50">
@@ -210,12 +198,19 @@ export default async function AdminStatsPage({
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
-                  {["利用者名", "権限", "利用回数", "合計施術時間", "最終利用日"].map((label) => (
+                  {/* 「権限」は狭い画面では利用者名の下に畳む（予約状況の表と同じ考え方） */}
+                  {[
+                    { label: "利用者名", hideOnMobile: false },
+                    { label: "権限", hideOnMobile: true },
+                    { label: "利用回数", hideOnMobile: false },
+                    { label: "合計施術時間", hideOnMobile: false },
+                    { label: "最終利用日", hideOnMobile: false },
+                  ].map((column) => (
                     <th
-                      key={label}
-                      className="border border-black/10 px-3 py-2 text-left font-medium dark:border-white/15"
+                      key={column.label}
+                      className={`border border-black/10 px-2 py-2 text-left font-medium sm:px-3 dark:border-white/15 ${column.hideOnMobile ? "hidden md:table-cell" : ""}`}
                     >
-                      {label}
+                      {column.label}
                     </th>
                   ))}
                 </tr>
@@ -223,24 +218,27 @@ export default async function AdminStatsPage({
               <tbody>
                 {stats.users.map((u) => (
                   <tr key={u.userId}>
-                    <td className="border border-black/10 px-3 py-2 dark:border-white/15">
+                    <td className="border border-black/10 px-2 py-2 sm:px-3 dark:border-white/15">
                       <Link
                         href={`/admin/users#user-${u.userId}`}
                         className="underline underline-offset-4"
                       >
                         {u.name}
                       </Link>
+                      <span className="mt-0.5 block text-xs text-black/50 md:hidden dark:text-white/50">
+                        {isRole(u.role) ? ROLE_LABEL[u.role] : u.role}
+                      </span>
                     </td>
-                    <td className="border border-black/10 px-3 py-2 dark:border-white/15">
+                    <td className="hidden border border-black/10 px-2 py-2 sm:px-3 md:table-cell dark:border-white/15">
                       {isRole(u.role) ? ROLE_LABEL[u.role] : u.role}
                     </td>
-                    <td className="border border-black/10 px-3 py-2 tabular-nums dark:border-white/15">
+                    <td className="border border-black/10 px-2 py-2 whitespace-nowrap tabular-nums sm:px-3 dark:border-white/15">
                       {u.count} 回
                     </td>
-                    <td className="border border-black/10 px-3 py-2 tabular-nums dark:border-white/15">
+                    <td className="border border-black/10 px-2 py-2 whitespace-nowrap tabular-nums sm:px-3 dark:border-white/15">
                       {formatMinutes(u.treatmentMin)}
                     </td>
-                    <td className="border border-black/10 px-3 py-2 tabular-nums dark:border-white/15">
+                    <td className="border border-black/10 px-2 py-2 whitespace-nowrap tabular-nums sm:px-3 dark:border-white/15">
                       {formatShort(u.lastUsedAt)}
                     </td>
                   </tr>
