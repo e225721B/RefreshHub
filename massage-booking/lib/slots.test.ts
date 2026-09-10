@@ -252,6 +252,46 @@ test("指定を省略すれば絞り込みなしとして扱う（空配列と�
   assert.equal(slots.length, 1);
 });
 
+// --- 過ぎた時間の枠を出さない（notBefore） ---
+
+test("notBefore を渡すと、その時刻より後に始まる枠だけが出る", () => {
+  const slots = getAvailableSlots({
+    shifts: oneHourShift, // 9:00〜10:00
+    beds,
+    therapists,
+    reservations: [],
+    treatmentMin: 15, // 枠 30 分 → 本来は 9:00 / 9:15 / 9:30
+    notBefore: "09:15",
+  });
+  assert.deepEqual(
+    slots.map((s) => s.startTime),
+    ["09:30"],
+  );
+});
+
+test("notBefore とちょうど同じ時刻に始まる枠は出さない（境界）", () => {
+  const slots = getAvailableSlots({
+    shifts: oneHourShift,
+    beds,
+    therapists,
+    reservations: [],
+    treatmentMin: 45, // 枠 60 分 → 9:00 の 1 つだけ
+    notBefore: "09:00",
+  });
+  assert.equal(slots.length, 0);
+});
+
+test("notBefore を省略すれば時刻では絞らない", () => {
+  const slots = getAvailableSlots({
+    shifts: oneHourShift,
+    beds,
+    therapists,
+    reservations: [],
+    treatmentMin: 15,
+  });
+  assert.equal(slots.length, 3);
+});
+
 // --- F-9: resolveShiftsForDate（基本パターン + 例外からシフトを組み立てる） ---
 
 const WED = "2026-09-09"; // 水曜日

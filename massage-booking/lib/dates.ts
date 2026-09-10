@@ -85,3 +85,13 @@ export function toDateTime(dateStr: string, hhmm: string): Date {
 export function hhmmOfLocal(d: Date): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+/**
+ * その開始時刻がもう過ぎているか。
+ * `isPast` は日付単位なので「今日の午前」を過去と判定できない。
+ * 15:00 を過ぎてから今日の 9:00 を選べてしまう問題を防ぐため、時刻まで見て判定する。
+ * ちょうど今始まる枠も予約させない（`<=`）。押している間に過ぎてしまうため。
+ */
+export function isStartPassed(dateStr: string, hhmm: string, now: Date = new Date()): boolean {
+  return toDateTime(dateStr, hhmm).getTime() <= now.getTime();
+}

@@ -86,8 +86,15 @@ export function getAvailableSlots(params: {
    * ここで受け取る条件を施術者 id の 1 種類だけにして、性別と施術者の二重管理を避けている。
    */
   therapistIds?: string[];
+  /**
+   * この時刻より後に始まる枠だけを返す（"HH:MM"）。省略すれば時刻で絞らない。
+   * **今日の分を計算するときに「今」を渡す**ことで、過ぎた時間の枠を出さないために使う。
+   * 日付を持たないこの関数に「今日かどうか」の判断はさせず、呼び出し側（fetchWeekAvailability）が決める。
+   */
+  notBefore?: string;
 }): Slot[] {
-  const { shifts, beds, therapists, reservations, treatmentMin, therapistIds } = params;
+  const { shifts, beds, therapists, reservations, treatmentMin, therapistIds, notBefore } = params;
+  const earliestStart = notBefore === undefined ? null : toMinutes(notBefore);
   const therapistFilter = therapistIds ? new Set(therapistIds) : null;
   // 1 人も選ばれていなければ、割り当てられる人がいないので枠は出ない
   if (therapistFilter && therapistFilter.size === 0) return [];
@@ -108,6 +115,8 @@ export function getAvailableSlots(params: {
   const slots: Slot[] = [];
 
   for (const start of [...startCandidates].sort((a, b) => a - b)) {
+    // もう過ぎている開始時刻は候補にしない（今日の午前など）
+    if (earliestStart !== null && start <= earliestStart) continue;
     const end = start + blockMin;
 
     // この時間帯に勤務していて、かつ予約が入っていないマッサージ師。

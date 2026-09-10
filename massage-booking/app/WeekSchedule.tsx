@@ -6,6 +6,7 @@ import {
   formatShort,
   formatWeekLabel,
   isPast,
+  isStartPassed,
   mondayOf,
   shiftWeek,
   todayString,
@@ -58,6 +59,9 @@ export function WeekSchedule({
   const [note, setNote] = useState("");
   const [loading, startLoading] = useTransition();
   const [saving, setSaving] = useState(false);
+  // 「今」を状態として持つ。画面を開いたままにしていても、時間が過ぎた枠が
+  // そのまま選べる状態で残らないように 1 分ごとに進める
+  const [now, setNow] = useState(() => new Date());
 
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
@@ -94,6 +98,9 @@ export function WeekSchedule({
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
     if (isPast(date)) return false;
+    // 今日の過ぎた時間（15:00 を過ぎてからの 9:00 など）は選ばせない。
+    // サーバー側でも同じ判定をしているが、開いたままの画面が古くなる分はここで止める
+    if (isStartPassed(date, time, now)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
   }
 
@@ -122,6 +129,12 @@ export function WeekSchedule({
     if (!selected || selected.date !== date) return false;
     return rowIndex >= selected.startRow && rowIndex < selected.startRow + selected.cells;
   }
+
+  // 1 分ごとに「今」を進める。ちょうど始まる時刻をまたいだ枠が選べたままにならないようにする。
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // マウスを離したらドラッグ終了。表の外で離しても止まるように window で拾う。
   useEffect(() => {
@@ -421,6 +434,7 @@ export function WeekSchedule({
                 </th>
                 {days.map((date) => {
                   const open = isCellOpen(date, time);
+                  const passed = isPast(date) || isStartPassed(date, time, now);
                   const inSelection = isInSelection(date, rowIndex);
                   const selectionValid = selected?.valid ?? true;
 
@@ -441,14 +455,17 @@ export function WeekSchedule({
                       title={
                         open
                           ? `${formatShort(date)} ${time} から。ドラッグで長さを変えられます`
-                          : "空きがありません"
+                          : passed
+                            ? "過ぎた時間です"
+                            : "空きがありません"
                       }
                       className={`h-7 border border-black/10 p-0 dark:border-white/15 ${tone} ${
                         open ? "cursor-pointer" : "cursor-not-allowed"
                       }`}
                     >
                       <span className="sr-only">
-                        {formatShort(date)} {time} {open ? "空き" : "空きなし"}
+                        {formatShort(date)} {time}{" "}
+                        {open ? "空き" : passed ? "過ぎた時間" : "空きなし"}
                       </span>
                     </td>
                   );

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { hhmmOfLocal, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
+import { hhmmOfLocal, isStartPassed, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
   TREATMENT_OPTIONS,
@@ -93,6 +93,9 @@ export async function fetchWeekAvailability(
   const therapistSlots = therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender }));
 
   const result: WeekAvailability = {};
+  // 今日の分だけ「今より後の枠」に限る。過去の日はそもそも画面側で選べない
+  const now = new Date();
+  const todayStr = toDateString(now);
 
   for (const date of dates) {
     const { start, end } = dayRange(date);
@@ -116,6 +119,7 @@ export async function fetchWeekAvailability(
         reservations: reservationWindows,
         treatmentMin,
         therapistIds: normalized,
+        notBefore: date === todayStr ? hhmmOfLocal(now) : undefined,
       });
       const byTime: Record<string, Slot> = {};
       for (const slot of slots) byTime[slot.startTime] = slot;
@@ -156,6 +160,10 @@ export async function createReservation(input: {
   if (!isValidTime(input.startTime)) return { ok: false, message: "時刻が正しくありません" };
   if (!isValidTreatment(input.treatmentMin)) {
     return { ok: false, message: "施術時間が正しくありません" };
+  }
+  // 画面で灰色にしていても、リクエストは直接投げられる。過ぎた時間はここで必ず弾く
+  if (isStartPassed(input.date, input.startTime)) {
+    return { ok: false, message: "過ぎた時間は予約できません。表を更新します" };
   }
 
   const blockEndTime = toHHMM(toMinutes(input.startTime) + input.treatmentMin + CLEANUP_MIN);
