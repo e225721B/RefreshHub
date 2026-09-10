@@ -28,6 +28,19 @@ model User {
   registeredAbsences    TherapistAbsence[]
   notifications         Notification[]
   decidedAbsenceRequests AbsenceRequest[]  @relation("AbsenceRequestDecidedBy")
+  sessions              Session[]
+}
+
+/// ログインセッション（F-6）。Cookie には token だけを入れ、なりすまし防止のため
+/// user.id 自体は Cookie に載せない（design.md 参照）。
+model Session {
+  token     String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
 }
 
 /// マッサージ師。表示名は User.name、性別は User.gender を使うため、ここには持たない

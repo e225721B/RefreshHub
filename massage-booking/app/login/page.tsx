@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { landingFor } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = {
@@ -46,7 +46,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   // ログイン済みの人をログイン画面に留めない（管理者は管理画面へ）
-  const current = await getCurrentUser(await nextCookieJar());
+  const current = await getCurrentUserForRequest();
   if (current) redirect(landingFor(current.role));
 
   const params = await searchParams;

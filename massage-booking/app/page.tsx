@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { UserBar } from "./UserBar";
 import { WeekSchedule } from "./WeekSchedule";
 
@@ -11,7 +11,7 @@ export default async function Home({
   searchParams: Promise<{ denied?: string }>;
 }) {
   // 未ログインならログイン画面へ。戻り先を渡し、ログイン後にここへ戻す。
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2F");
   const { denied } = await searchParams;
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { TherapistUserBar } from "./TherapistUserBar";
 import { TherapistTabs } from "./TherapistTabs";
 
@@ -9,7 +9,7 @@ import { TherapistTabs } from "./TherapistTabs";
  * タブの切り替えは子ページ間の遷移なので、認証チェックはここ 1 か所にまとめる。
  */
 export default async function TherapistLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Ftherapist");
   if (user.role !== "therapist" && user.role !== "admin") redirect("/?denied=therapist");
 

@@ -4,7 +4,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { type CookieJar, getCurrentUser, login, logout } from "./session";
+import { prisma } from "./db";
+import { type CookieJar, SESSION_COOKIE, getCurrentUser, login, logout } from "./session";
 
 /** テスト用の in-memory CookieJar */
 function memoryJar(): CookieJar {
@@ -37,7 +38,16 @@ test("ログイン後、getCurrentUser でログイン中のユーザーが取�
 test("ログアウトすると getCurrentUser が null を返す", async () => {
   const jar = memoryJar();
   await login(jar, ADMIN_EMAIL, SEED_PASSWORD);
-  logout(jar);
+  await logout(jar);
+  const user = await getCurrentUser(jar);
+  assert.equal(user, null);
+});
+
+test("Cookie の値を他人の user.id に書き換えても、その人としてはログインできない", async () => {
+  const jar = memoryJar();
+  await login(jar, ADMIN_EMAIL, SEED_PASSWORD);
+  const admin = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_EMAIL } });
+  jar.set(SESSION_COOKIE, admin.id); // token ではなく user.id を Cookie に直接セットしてなりすましを試みる
   const user = await getCurrentUser(jar);
   assert.equal(user, null);
 });

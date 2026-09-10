@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listUsers } from "@/app/actions/users";
 import { GENDER_LABEL, ROLE_LABEL, isRole, isGender } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { UserBar } from "../../UserBar";
 import { AddUserDialog } from "../AddUserDialog";
 import { UserActions } from "./UserActions";
@@ -14,7 +14,7 @@ export const metadata = {
 /** 管理者: ユーザー管理（AC-17 / A-4） */
 export default async function AdminUsersPage() {
   // アカウント情報を扱う画面なので、管理者以外は入れない（F-8 / 要件 Q-7）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fusers");
   if (user.role !== "admin") redirect("/?denied=admin");
 
