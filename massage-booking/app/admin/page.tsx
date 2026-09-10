@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { UserBar } from "../UserBar";
 import { AddUserDialog } from "./AddUserDialog";
-import { formatShort, hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
+import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
 import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
 
