@@ -314,12 +314,12 @@ export function WeekSchedule({ userName }: { userName: string }) {
                 <th
                   key={date}
                   className={`border border-black/10 px-2 py-2 text-center dark:border-white/15 ${
-                    date === today ? "bg-rose-500/10" : ""
+                    date === today ? "border-b-2 border-b-rose-500" : ""
                   }`}
                 >
                   {formatShort(date)}
                   {date === today && (
-                    <span className="ml-1 text-xs font-normal text-rose-600 dark:text-rose-300">
+                    <span className="ml-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
                       今日
                     </span>
                   )}
