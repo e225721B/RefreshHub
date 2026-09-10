@@ -10,15 +10,10 @@
 import { revalidatePath } from "next/cache";
 import { AuthError, requireRole } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import type { Role } from "@/lib/roles";
+import type { Prisma } from "@prisma/client";
+import { isRole, type Role } from "@/lib/roles";
 import type { Gender } from "@/lib/slots";
-import {
-  countUserHistory,
-  createUserAccount,
-  deleteUserAccount,
-  reactivateUserAccount,
-  type UserHistory,
-} from "@/lib/users";
+import { createUserAccount, deleteUserAccount, reactivateUserAccount } from "@/lib/users";
 
 export type UserRow = {
   id: string;
@@ -27,9 +22,35 @@ export type UserRow = {
   role: string;
   active: boolean;
   gender: Gender;
-  /** 削除したときに何が起きるかを画面で先に見せるために持つ */
-  history: UserHistory;
+  /**
+   * 合計利用回数（本人がマッサージを受けた回数）。
+   * キャンセル分は数えない（集計画面と同じ数え方。design.md の Q-B）。
+   * 内訳（担当・通知・キャンセル操作…）は出さない。増え続ける数字を並べても一覧が読みにくくなるだけで、
+   * 削除の可否にも使わなくなったため（削除は常に論理削除）。
+   */
+  usageCount: number;
   canDelete: boolean;
+};
+
+/** 一覧の絞り込み。ユーザーが増えても 1 画面が読める量に収める */
+export type UserListOptions = {
+  /** 削除済み（active = false）も含めるか */
+  includeDeleted?: boolean;
+  /** 氏名・メールアドレスの部分一致 */
+  q?: string;
+  /** "user" | "therapist" | "admin"。それ以外は「すべて」として扱う */
+  role?: string;
+  /** 1 始まり。範囲外は端に丸める */
+  page?: number;
+};
+
+export type UserListResult = {
+  users: UserRow[];
+  /** 絞り込み後の総件数（ページングの前） */
+  total: number;
+  page: number;
+  pageCount: number;
+  perPage: number;
 };
 
 /** 登録できたときだけ、本人に渡す初期パスワードを画面に返す（保存されるのはハッシュのみ） */
@@ -38,27 +59,70 @@ export type CreateUserState = {
   created: { name: string; email: string; role: Role; password: string } | null;
 };
 
-/** ユーザー一覧（AC-17）。マッサージ師は性別も一緒に見えるようにする */
-export async function listUsers(): Promise<UserRow[]> {
+/**
+ * ユーザー一覧（AC-17）。マッサージ師は性別も一緒に見えるようにする。
+ *
+ * 将来 700 人規模になる想定（requirements.md の規模の試算）なので、**全件は返さない。**
+ * 検索・権限での絞り込み・ページングで、1 回に返すのは perPage 件まで。
+ *
+ * 削除は論理削除（active を false にするだけ）で行は DB に残るが、**既定では一覧に出さない。**
+ * 消したはずの人が並び続けると一覧が使いものにならないため。
+ * 誤って消したときに戻せるよう、includeDeleted を立てたときだけ一緒に返す。
+ */
+export async function listUsers(options: UserListOptions = {}): Promise<UserListResult> {
   const me = await requireRole(["admin"]);
-  const users = await prisma.user.findMany({
-    orderBy: [{ role: "asc" }, { name: "asc" }],
-  });
-  const activeAdmins = users.filter((u) => u.role === "admin" && u.active).length;
+  const perPage = 20;
 
-  return Promise.all(
-    users.map(async (u) => ({
+  const keyword = options.q?.trim() ?? "";
+  const where: Prisma.UserWhereInput = {
+    ...(options.includeDeleted ? {} : { active: true }),
+    ...(isRole(options.role ?? "") ? { role: options.role } : {}),
+    // SQLite の contains は ASCII について大文字小文字を区別しない（メールは小文字で保存している）
+    ...(keyword
+      ? { OR: [{ name: { contains: keyword } }, { email: { contains: keyword } }] }
+      : {}),
+  };
+
+  const total = await prisma.user.count({ where });
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  const page = Math.min(Math.max(1, options.page ?? 1), pageCount);
+
+  const [users, activeAdmins] = await Promise.all([
+    prisma.user.findMany({
+      where,
+      orderBy: [{ role: "asc" }, { name: "asc" }],
+      skip: (page - 1) * perPage,
+      take: perPage,
+    }),
+    // 「管理者が 0 人になる削除」を止めるための数。一覧の絞り込みとは切り離して DB 全体で数える
+    prisma.user.count({ where: { role: "admin", active: true } }),
+  ]);
+
+  // 利用回数は 1 クエリでまとめて数える。1 人ずつ数えると 20 人で 20 回問い合わせることになる
+  const counts = await prisma.reservation.groupBy({
+    by: ["userId"],
+    where: { userId: { in: users.map((u) => u.id) }, status: "booked" },
+    _count: { _all: true },
+  });
+  const usage = new Map(counts.map((c) => [c.userId, c._count._all]));
+
+  return {
+    users: users.map((u) => ({
       id: u.id,
       name: u.name,
       email: u.email,
       role: u.role,
       active: u.active,
       gender: u.gender as Gender,
-      history: await countUserHistory(u.id),
+      usageCount: usage.get(u.id) ?? 0,
       // 実際の可否は deleteUserAccount でも確かめる。ここはボタンを出すかどうかの判断
       canDelete: u.id !== me.id && !(u.role === "admin" && u.active && activeAdmins <= 1),
     })),
-  );
+    total,
+    page,
+    pageCount,
+    perPage,
+  };
 }
 
 /** モーダルのフォームから呼ばれる（A-5） */
@@ -124,10 +188,8 @@ export async function deleteUser(
   revalidatePath("/admin/users");
   return {
     error: null,
-    message:
-      result.mode === "deleted"
-        ? `${result.name} を削除しました`
-        : `${result.name} には予約などの記録があるため、削除せず無効にしました（ログインできなくなります）`,
+    // 論理削除なので「消えた」と言い切らない。何が起きたかをそのまま書く
+    message: `${result.name} を削除しました（ログインできなくなります。過去の予約と集計は残ります）`,
   };
 }
 
