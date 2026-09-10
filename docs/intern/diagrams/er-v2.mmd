@@ -14,12 +14,12 @@ erDiagram
     string email "ログイン ID"
     string password "管理者が登録し本人に渡す"
     string role "user / therapist / admin"
+    string gender "male / female（全員必須）"
     boolean active "無効化に使う"
   }
   THERAPIST {
     string id "t1..."
-    string userId "USER.id（必須。表示名は User.name を使うので name は持たない）"
-    string gender "male / female"
+    string userId "USER.id（必須。表示名と性別は User 側を使うので持たない）"
     boolean active "退職・休職に使う"
   }
   BED {
@@ -52,8 +52,10 @@ erDiagram
     datetime endAt "施術 + 15 分の枠終了日時"
     string status "booked / cancelled"
     string note "備考（任意）"
+    datetime createdAt "予約した日時"
     string cancelledById "USER.id（誰が取り消したか）"
     string cancelReason "取り消しの理由"
+    datetime cancelledAt "取り消した日時"
   }
   NOTIFICATION {
     string id "n1..."

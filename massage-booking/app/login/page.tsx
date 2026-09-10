@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { landingFor } from "@/lib/roles";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { LoginForm } from "./LoginForm";
 
@@ -44,8 +45,9 @@ export default async function LoginPage({
   // Next.js 16 では searchParams は Promise。await が必要。
   searchParams: Promise<{ next?: string }>;
 }) {
-  // ログイン済みの人をログイン画面に留めない
-  if (await getCurrentUser(await nextCookieJar())) redirect("/");
+  // ログイン済みの人をログイン画面に留めない（管理者は管理画面へ）
+  const current = await getCurrentUser(await nextCookieJar());
+  if (current) redirect(landingFor(current.role));
 
   const params = await searchParams;
   const next =
