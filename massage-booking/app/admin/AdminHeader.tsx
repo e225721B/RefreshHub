@@ -19,7 +19,18 @@ type AdminPath = (typeof PAGES)[number]["href"];
  *   1 段目 = 見出し ＋ ユーザー欄、2 段目 = 画面切り替えのタブ（入り切らなければ横スクロール）。
  * sm 以上では 1 行に戻し、タブを見出しの右へ置く（order で並び順だけ入れ替える）。
  */
-export function AdminHeader({ title, current, user }: { title: string; current: AdminPath; user: SessionUser }) {
+export function AdminHeader({
+  title,
+  current,
+  user,
+  /** 管理者画面以外への行き先（例: マッサージ師向け画面）。タブではなくリンクとして末尾に置く */
+  extraLinks = [],
+}: {
+  title: string;
+  current: AdminPath;
+  user: SessionUser;
+  extraLinks?: { href: string; label: string }[];
+}) {
   return (
     <header className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
       <h1 className="text-xl font-bold sm:text-2xl">{title}</h1>
@@ -51,6 +62,17 @@ export function AdminHeader({ title, current, user }: { title: string; current: 
               </Link>
             );
           })}
+
+          {/* 管理者画面のタブではないので、囲みを付けずリンクのまま並べる */}
+          {extraLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="flex items-center px-2 text-sm whitespace-nowrap underline underline-offset-4"
+            >
+              {link.label}
+            </Link>
+          ))}
         </div>
       </nav>
     </header>

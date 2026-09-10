@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getStats } from "@/app/actions/stats";
 import { formatShort, fromDateString, shiftDate, toDateString, todayString } from "@/lib/dates";
 import { ROLE_LABEL, isRole } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { formatMinutes, normalizeRange } from "@/lib/stats";
 import { AdminHeader } from "../AdminHeader";
 import { HorizontalBarChart, PeriodChart } from "./Charts";
@@ -38,7 +38,7 @@ export default async function AdminStatsPage({
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
   // 「誰がいつ何回使ったか」を扱う画面なので、管理者だけが開ける（F-8 / 要件 Q-7）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fstats");
   if (user.role !== "admin") redirect("/?denied=admin");
 
@@ -48,8 +48,14 @@ export default async function AdminStatsPage({
   const stats = await getStats(range.from, range.to);
   const { summary } = stats;
 
+  // w-full は狭い画面だけ。body が flex で main が mx-auto のため、main は「中身の最大幅」に
+  // 合わせて広がろうとする。その結果、表の min-w が overflow-x-auto の外へ漏れて
+  // **ページ全体が画面幅より広くなり、ヘッダーやボタンが画面の外に出る**
+  // （390px の画面で main が 544px になっていた）。w-full で幅を画面に固定し、
+  // はみ出しは表の中だけで起こるようにする。
+  // sm 以上は従来どおり w-auto に戻す（PC では main の幅が変わってしまうため）。
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+    <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
       <AdminHeader title="集計" current="/admin/stats" user={user} />
 
       {/* --- 期間指定 --------------------------------------------------- */}

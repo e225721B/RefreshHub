@@ -234,7 +234,7 @@ export function HorizontalBarChart({
     <div className="flex flex-col gap-1.5">
       {rows.map((r) => (
         <div key={r.key} className="flex items-center gap-2 text-sm sm:gap-3">
-          <span className="w-12 shrink-0 text-right tabular-nums text-black/60 sm:w-14 dark:text-white/60">
+          <span className="w-14 shrink-0 text-right tabular-nums text-black/60 dark:text-white/60">
             {r.label}
           </span>
           <span

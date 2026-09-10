@@ -792,3 +792,87 @@ iOS Safari は **16px 未満の入力欄にフォーカスが当たると画面�
 
 **学生へ**: すでに拡大されたまま固定されている端末では、一度ピンチで戻すか再読み込みしてください。
 Safari は拡大率をサイト単位で覚えているため、直したあとも最初の 1 回だけ残ることがあります。
+
+---
+
+## 追加（2026-09-10）: スマホ幅の画面を撮って確認し、はみ出しを直した
+
+### 1. マージの解消が壊れていたので直した
+
+`901c7ea コンフリクト解消による修正` の時点で、**ブランチがビルドできない状態**だった。
+
+| ファイル | 何が起きていたか | 直し方 |
+|---|---|---|
+| `app/admin/page.tsx` | 古いヘッダーと新しい `AdminHeader` が二重に残り、`<main/>` という不正なタグが入っていた | 古い側を削除。`main` から入った `/therapist` へのリンクは `AdminHeader` の `extraLinks` として残した |
+| `app/admin/users/page.tsx` | `getCurrentUser` を import しているのに `getCurrentUserForRequest()` を呼んでいた | import を新しい方に統一 |
+| `app/admin/stats/page.tsx` | 1 画面だけ古いセッション取得のままだった | 他の管理者画面と同じ `getCurrentUserForRequest()` に統一 |
+
+`prisma generate` も必要だった（マージで入った `Session` / `AbsenceRequest` に生成済みクライアントが追いついていなかった）。
+
+### 2. スマホ幅でページ全体が画面からはみ出していた（今回の本命）
+
+390px 幅で測ると **`main` の幅が 544px（集計は 567px）** になっていて、ヘッダーやボタンが画面の外に出ていた。
+
+原因は `body` が `flex` で `main` が `mx-auto` のため、**`main` が「中身の最大幅」に合わせて広がろうとする**こと。
+その結果、表の `min-w-[32rem]` が `overflow-x-auto` の外へ漏れて、ページ全体を押し広げていた。
+
+直し方は `main` に `w-full sm:w-auto` を足すだけ。**`sm:` で戻しているのは、PC では `main` の幅が変わってしまうため**
+（実測: `/admin/users` の `main` は 716px → `w-full` を無条件に付けると 1024px に変わる）。
+
+```
+        390px 幅        修正前 → 修正後
+/admin        main 544px → 390px（はみ出しなし）
+/admin/users  main 390px → 390px（もともと問題なし）
+/admin/stats  main 567px → 390px（はみ出しなし）
+
+1440px 幅（PC）  修正前 → 修正後
+/admin        main 923px → 923px（変化なし）
+/admin/users  main 716px → 716px（変化なし）
+```
+
+### 3. 横スクロール時に表の描画が乱れていた
+
+時刻列を `sticky` で固定したところ、横にスクロールすると**画面外へ出たセルの枠線が時刻列の上に描かれ**、
+行がずれて二重に見えていた。`position: sticky` と `border-collapse: collapse` を組み合わせたときの既知の挙動
+（枠線がセルではなく表に属するため、固定したセルと一緒に動かない）。
+
+狭い画面だけ `border-separate` に切り替え、各セルは右と下だけに線を引くようにして回避した（`max-sm:` なので PC は従来のまま）。
+
+### 4. 画面の写真（スマホ幅 390px = iPhone 14 相当）
+
+| 画面 | 写真 |
+|---|---|
+| 予約状況 | `docs/intern/screens/mobile-admin-schedule.png` |
+| 予約状況（表を右端までスクロール／時刻列が残る） | `docs/intern/screens/mobile-admin-schedule-scrolled.png` |
+| ユーザー管理 | `docs/intern/screens/mobile-admin-users.png` |
+| 集計 | `docs/intern/screens/mobile-admin-stats.png` |
+| ユーザー追加のモーダル | `docs/intern/screens/mobile-admin-add-user.png` |
+
+**撮り方**（学生が自分で撮り直すとき）
+
+`prisma/seed.ts` は全テーブルを `deleteMany` するため、**手元の `dev.db` には実行しないこと**。
+使い捨ての DB を別に作り、そちらへ入れて撮った。
+
+```
+DATABASE_URL="file:/tmp/shot.db" npx prisma migrate deploy
+DATABASE_URL="file:/tmp/shot.db" npx tsx prisma/seed.ts
+DATABASE_URL="file:/tmp/shot.db" PORT=3112 npm run start
+```
+
+Chrome を CDP（開発者ツールのプロトコル）で動かし、390x844・2 倍解像度で撮影した。
+ログインはフォームから行っている（セッションが `Session` テーブルの token 方式になったため、Cookie を作るだけでは入れない）。
+
+### 5. 残っている問題（今回は直していない）
+
+- **利用者側のトップ画面（`/`）は、まだ横にはみ出す**。390px の画面で `main` が 688px。
+  管理者画面と同じ原因だが、週表示の表（`min-w-[640px]`）をどう見せるかを決める必要があり、別途モバイル対応が要る。
+- `app/therapist/today/UserHistoryModal.tsx` に lint エラーが 1 件（`react-hooks/set-state-in-effect`）。
+  `main` から入ったコードで、今回の変更とは無関係。
+
+### 6. 確認
+
+```
+$ npx tsc --noEmit   → エラー 0
+$ npm run build      → ✓（/admin, /admin/stats, /admin/users, /therapist ほか）
+$ npm run lint       → 上記 1 件のみ（マージ由来）
+```

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listUsers } from "@/app/actions/users";
 import { GENDER_LABEL, ROLE_LABEL, ROLES, isRole, isGender } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { AddUserDialog } from "../AddUserDialog";
 import { AdminHeader } from "../AdminHeader";
 import { UserActions } from "./UserActions";
@@ -68,8 +68,14 @@ export default async function AdminUsersPage({
   const last = Math.min(page * perPage, total);
   const filtering = Boolean(keyword || roleFilter);
 
+  // w-full は狭い画面だけ。body が flex で main が mx-auto のため、main は「中身の最大幅」に
+  // 合わせて広がろうとする。その結果、表の min-w が overflow-x-auto の外へ漏れて
+  // **ページ全体が画面幅より広くなり、ヘッダーやボタンが画面の外に出る**
+  // （390px の画面で main が 544px になっていた）。w-full で幅を画面に固定し、
+  // はみ出しは表の中だけで起こるようにする。
+  // sm 以上は従来どおり w-auto に戻す（PC では main の幅が変わってしまうため）。
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
+    <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
       <AdminHeader title="ユーザー管理" current="/admin/users" user={user} />
 
       {/* --- 絞り込み ---------------------------------------------------- */}
