@@ -1,9 +1,8 @@
 "use client";
 
 // 一覧 1 行ぶんの操作（削除 / 有効に戻す）。
-//
-// 削除は**論理削除**（User.active を false にするだけ）。行は消えないので取り消せるが、
-// 押した人が「消えた」と誤解しないよう、確認のダイアログで何が起きるかを先に見せる。
+// 削除は取り消せないので、必ず確認のダイアログを挟み、
+// 「完全に消える」のか「無効になるだけ」なのかを押す前に見せる。
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
@@ -25,19 +24,15 @@ function SubmitButton({ label, className }: { label: string; className: string }
   );
 }
 
-/**
- * 記録があるか。lib/users.ts の hasHistory と同じ判定だが、あちらは Prisma を読み込むモジュールなので
- * クライアント側から import しない（ブラウザ向けの束に Prisma が混ざる）。ここは表示のためだけに数える。
- */
-function hasHistory(h: UserRow["history"]): boolean {
-  return h.reservations + h.assignments + h.others > 0;
-}
-
 export function UserActions({ user }: { user: UserRow }) {
   const [confirming, setConfirming] = useState(false);
   const [deleteState, deleteAction] = useActionState(deleteUser, INITIAL);
   const [reactivateState, reactivateAction] = useActionState(reactivateUser, INITIAL);
 
+  // 記録が 1 件も無ければ完全に消える。判定はサーバ側（lib/users.ts）と同じ条件で、
+  // 「押す前に何が起きるか」を見せるためだけに使う
+  const willDelete =
+    user.history.reservations + user.history.assignments + user.history.others === 0;
   const result = deleteState.error ?? deleteState.message ?? reactivateState.error ?? reactivateState.message;
   const isError = Boolean(deleteState.error || reactivateState.error);
 
@@ -54,19 +49,17 @@ export function UserActions({ user }: { user: UserRow }) {
           </form>
         )}
 
-        {/* 削除済み（active = false）の人には出さない。出しても「すでに削除されています」で断られるだけ */}
-        {user.active &&
-          (user.canDelete ? (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              className="rounded-full border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
-            >
-              削除
-            </button>
-          ) : (
-            <span className="text-xs text-black/40 dark:text-white/40">削除できません</span>
-          ))}
+        {user.canDelete ? (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="rounded-full border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+          >
+            削除
+          </button>
+        ) : (
+          <span className="text-xs text-black/40 dark:text-white/40">削除できません</span>
+        )}
       </div>
 
       {result && (
@@ -95,24 +88,29 @@ export function UserActions({ user }: { user: UserRow }) {
               {user.email}
             </p>
 
-            <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
-              <p>
-                <strong>ログインできなくなり、空き枠の担当にも出なくなります。</strong>
-                過去の予約と集計は残ります（誰が使ったかを後から追えるようにするため）。
-                あとから有効に戻せます。
+            {willDelete ? (
+              <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm leading-relaxed text-rose-900 dark:bg-rose-500/10 dark:text-rose-200">
+                予約などの記録が 1 件も無いため、
+                <strong>アカウントを完全に削除します。元に戻せません。</strong>
               </p>
-              {hasHistory(user.history) && (
-                <p className="mt-1">
+            ) : (
+              <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
+                <p>
                   このユーザーには
                   <strong>
                     {user.history.reservations > 0 && ` 予約 ${user.history.reservations} 件`}
                     {user.history.assignments > 0 && ` 担当 ${user.history.assignments} 件`}
                     {user.history.others > 0 && ` その他の記録 ${user.history.others} 件`}
                   </strong>
-                  の記録があります。
+                  があります。
                 </p>
-              )}
-            </div>
+                <p className="mt-1">
+                  消すと過去の予約と集計が壊れるため、
+                  <strong>削除せず「無効」にします</strong>
+                  （ログインできなくなります）。あとから有効に戻せます。
+                </p>
+              </div>
+            )}
 
             <form
               action={deleteAction}
@@ -128,7 +126,7 @@ export function UserActions({ user }: { user: UserRow }) {
                 やめる
               </button>
               <SubmitButton
-                label="削除する"
+                label={willDelete ? "完全に削除する" : "無効にする"}
                 className="rounded-full bg-rose-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-600/25 transition hover:bg-rose-700"
               />
             </form>

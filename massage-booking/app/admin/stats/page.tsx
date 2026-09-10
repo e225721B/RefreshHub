@@ -154,7 +154,7 @@ export default async function AdminStatsPage({
       {/* --- 期間別グラフ ------------------------------------------------ */}
       <section className="mb-10">
         <h2 className="mb-1 text-lg font-semibold">期間別の利用</h2>
-        <PeriodChart points={stats.period} granularity={stats.granularity} />
+        <PeriodChart points={stats.period} />
       </section>
 
       {/* --- 時間帯別 / ベッド別 ------------------------------------------ */}

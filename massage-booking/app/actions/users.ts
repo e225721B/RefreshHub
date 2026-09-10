@@ -27,7 +27,7 @@ export type UserRow = {
   role: string;
   active: boolean;
   gender: Gender;
-  /** 一覧に「利用実績」として見せる。削除の可否には使わない（削除は常に論理削除） */
+  /** 削除したときに何が起きるかを画面で先に見せるために持つ */
   history: UserHistory;
   canDelete: boolean;
 };
@@ -55,8 +55,7 @@ export async function listUsers(): Promise<UserRow[]> {
       active: u.active,
       gender: u.gender as Gender,
       history: await countUserHistory(u.id),
-      // 実際の可否は deleteUserAccount でも確かめる。ここはボタンを出すかどうかの判断。
-      // 自分自身と、有効な管理者が最後の 1 人のときのその管理者は削除できない
+      // 実際の可否は deleteUserAccount でも確かめる。ここはボタンを出すかどうかの判断
       canDelete: u.id !== me.id && !(u.role === "admin" && u.active && activeAdmins <= 1),
     })),
   );
@@ -123,11 +122,12 @@ export async function deleteUser(
 
   revalidatePath("/admin");
   revalidatePath("/admin/users");
-  revalidatePath("/admin/stats");
   return {
     error: null,
-    // 論理削除なので「消えた」と言い切らない。何が起きたかをそのまま書く
-    message: `${result.name} を削除しました（ログインできなくなります。過去の予約と集計は残ります）`,
+    message:
+      result.mode === "deleted"
+        ? `${result.name} を削除しました`
+        : `${result.name} には予約などの記録があるため、削除せず無効にしました（ログインできなくなります）`,
   };
 }
 
@@ -150,6 +150,5 @@ export async function reactivateUser(
 
   revalidatePath("/admin");
   revalidatePath("/admin/users");
-  revalidatePath("/admin/stats");
   return { error: null, message: `${result.name} を有効に戻しました` };
 }

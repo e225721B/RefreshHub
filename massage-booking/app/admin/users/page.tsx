@@ -45,12 +45,7 @@ export default async function AdminUsersPage() {
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr>
-              {/*
-                「状態」列は置かない。削除は論理削除（User.active を false にする）だけなので、
-                「無効」になるのは削除したときに限られ、操作列の「有効に戻す」ボタンと同じことを
-                二重に言うことになる。削除済みの人は行を薄くして見分ける。
-              */}
-              {["氏名", "メールアドレス", "権限", "性別", "利用実績", "操作"].map((label) => (
+              {["氏名", "メールアドレス", "権限", "性別", "利用実績", "状態", "操作"].map((label) => (
                 <th
                   key={label}
                   className="border border-black/10 px-3 py-2 text-left dark:border-white/15"
@@ -67,10 +62,7 @@ export default async function AdminUsersPage() {
               <tr
                 key={u.id}
                 id={`user-${u.id}`}
-                className={`scroll-mt-24 target:bg-amber-100/70 dark:target:bg-amber-400/15 ${
-                  // 削除済み（active = false）の行は薄くして、有効な人と見分けられるようにする
-                  u.active ? "" : "text-black/40 dark:text-white/40"
-                }`}
+                className="scroll-mt-24 target:bg-amber-100/70 dark:target:bg-amber-400/15"
               >
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.name}</td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.email}</td>
@@ -91,6 +83,13 @@ export default async function AdminUsersPage() {
                     ]
                       .filter(Boolean)
                       .join(" / ")
+                  )}
+                </td>
+                <td className="border border-black/10 px-3 py-2 dark:border-white/15">
+                  {u.active ? (
+                    "有効"
+                  ) : (
+                    <span className="text-black/50 dark:text-white/50">無効</span>
                   )}
                 </td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">
