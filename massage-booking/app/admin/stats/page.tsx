@@ -154,7 +154,23 @@ export default async function AdminStatsPage({
       {/* --- 期間別グラフ ------------------------------------------------ */}
       <section className="mb-10">
         <h2 className="mb-1 text-lg font-semibold">期間別の利用</h2>
-        <PeriodChart points={stats.period} />
+
+        {/*
+          「1 人あたり週 1 回まで」は福利厚生の運用ルールで、予約時にシステムで止めていない。
+          破られると日別・週別の「ユニーク利用者数 = 予約数」という前提も崩れるので、
+          同じ高さの棒 2 本で見比べさせるのではなく、件数を名指しで出して気づけるようにする。
+        */}
+        {stats.weeklyRule.violations > 0 && (
+          <p className="mb-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200">
+            <strong>
+              週 1 回のルールを破っている予約が {stats.weeklyRule.violations} 件あります
+            </strong>
+            （{stats.weeklyRule.users} 人）。同じ人が同じ週に 2 件以上予約している分を数えています。
+            週の区切りは月曜はじまりです。
+          </p>
+        )}
+
+        <PeriodChart points={stats.period} granularity={stats.granularity} />
       </section>
 
       {/* --- 時間帯別 / ベッド別 ------------------------------------------ */}

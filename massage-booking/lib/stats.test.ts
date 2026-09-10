@@ -12,6 +12,7 @@ import {
   daysBetween,
   DEFAULT_RANGE_DAYS,
   enumerateBuckets,
+  countWeeklyRuleViolations,
   formatMinutes,
   MAX_RANGE_DAYS,
   normalizeRange,
@@ -336,4 +337,108 @@ test("予約が 1 件も無い期間でも、0 で表示できる形を返す", 
   assert.equal(stats.users.length, 0);
   assert.equal(stats.period.length, 7);
   assert.equal(stats.byBed.length, 3);
+});
+
+
+// --- 週 1 回までのルールの検算 ---------------------------------------------
+
+test("週 1 回までを守っていれば、違反は 0 件", () => {
+  // 2026-09-07(月) の週と 2026-09-14(月) の週に 1 件ずつ
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-15", "10:00") }),
+    reservation({ userId: "u2", startAt: at("2026-09-09", "10:00") }),
+  ]);
+  assert.deepEqual(check, { violations: 0, users: 0 });
+});
+
+test("同じ人が同じ週に 2 件持っていたら、超過ぶんの 1 件を違反として数える", () => {
+  // 9/8(火) と 9/10(木) はどちらも 9/7(月) の週
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-10", "10:00") }),
+  ]);
+  assert.deepEqual(check, { violations: 1, users: 1 });
+});
+
+test("同じ週に 3 件なら違反は 2 件（1 件目は正当なので数えない）", () => {
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-09", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-10", "10:00") }),
+  ]);
+  assert.deepEqual(check, { violations: 2, users: 1 });
+});
+
+test("週の区切りは月曜。日曜と翌月曜は別の週として数える", () => {
+  // 2026-09-13 は日曜、2026-09-14 は月曜
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-13", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-14", "10:00") }),
+  ]);
+  assert.equal(check.violations, 0, "日曜と月曜を同じ週として数えている");
+});
+
+test("キャンセルされた予約は違反として数えない（実績に数えない方針に合わせる）", () => {
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({
+      userId: "u1",
+      startAt: at("2026-09-10", "10:00"),
+      status: "cancelled",
+      cancelledById: "u1",
+    }),
+  ]);
+  assert.deepEqual(check, { violations: 0, users: 0 });
+});
+
+test("違反した人数も数える", () => {
+  const check = countWeeklyRuleViolations([
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-10", "10:00") }),
+    reservation({ userId: "u2", startAt: at("2026-09-08", "11:00") }),
+    reservation({ userId: "u2", startAt: at("2026-09-11", "11:00") }),
+    reservation({ userId: "u3", startAt: at("2026-09-08", "12:00") }),
+  ]);
+  assert.deepEqual(check, { violations: 2, users: 2 });
+});
+
+test("aggregate の結果にも違反件数が入る", () => {
+  const stats = aggregate({
+    range: { from: "2026-09-07", to: "2026-09-11" },
+    beds: BEDS,
+    reservations: [
+      reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+      reservation({ userId: "u1", startAt: at("2026-09-10", "10:00") }),
+    ],
+  });
+  assert.equal(stats.weeklyRule.violations, 1);
+  assert.equal(stats.weeklyRule.users, 1);
+});
+
+test("期間の端で週が切れていても、週まるごとを渡せば数え漏れない", () => {
+  // 期間は 9/9(水)〜9/11(金)。同じ週の 9/8(火) は期間の外にある
+  const outsideAndInside = [
+    reservation({ userId: "u1", startAt: at("2026-09-08", "10:00") }),
+    reservation({ userId: "u1", startAt: at("2026-09-10", "10:00") }),
+  ];
+  const inPeriod = outsideAndInside.filter((r) => r.startAt >= at("2026-09-09", "00:00"));
+
+  // 期間内だけを見ると 1 件しかないので気づけない
+  const naive = aggregate({
+    range: { from: "2026-09-09", to: "2026-09-11" },
+    beds: BEDS,
+    reservations: inPeriod,
+  });
+  assert.equal(naive.weeklyRule.violations, 0);
+
+  // 週まるごとを渡せば気づける。集計値のほうは期間内の 1 件のまま
+  const stats = aggregate({
+    range: { from: "2026-09-09", to: "2026-09-11" },
+    beds: BEDS,
+    reservations: inPeriod,
+    weekWindowReservations: outsideAndInside,
+  });
+  assert.equal(stats.weeklyRule.violations, 1);
+  assert.equal(stats.summary.reservations, 1, "検算用の予約が集計値に混ざっている");
 });

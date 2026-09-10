@@ -193,18 +193,60 @@ export type Stats = {
   byHour: { hour: number; label: string; count: number }[];
   byBed: { bedId: string; name: string; count: number }[];
   users: UserRow[];
+  /** 「1 人あたり週 1 回まで」を破っている予約（下の countWeeklyRuleViolations を参照） */
+  weeklyRule: WeeklyRuleCheck;
 };
+
+export type WeeklyRuleCheck = {
+  /** ルールを超えて入っている予約の件数（2 回目以降を数える） */
+  violations: number;
+  /** そのうち何人がかかわっているか */
+  users: number;
+};
+
+/**
+ * 福利厚生のルール「1 人が使えるのは週 1 回まで」を破っている予約を数える。
+ *
+ * このルールは**予約時にシステムで止めていない**（運用で守っている）ため、破った予約は入りうる。
+ * 破られると「日別・週別ではユニーク利用者数 = 予約数」という前提も崩れるので、
+ * 集計画面で気づけるように数えておく。
+ *
+ * 数え方: 同じ人が同じ週（月曜はじまり）に n 件持っていたら、超過ぶんの n - 1 件を違反として数える。
+ * キャンセル済みは実績に数えない方針（design.md Q-B）に合わせ、booked だけを見る。
+ */
+export function countWeeklyRuleViolations(reservations: StatsReservation[]): WeeklyRuleCheck {
+  const perUserWeek = new Map<string, number>();
+  for (const r of reservations) {
+    if (r.status !== "booked") continue;
+    const key = `${r.userId}@${mondayOf(toDateString(r.startAt))}`;
+    perUserWeek.set(key, (perUserWeek.get(key) ?? 0) + 1);
+  }
+
+  let violations = 0;
+  const users = new Set<string>();
+  for (const [key, count] of perUserWeek) {
+    if (count <= 1) continue;
+    violations += count - 1;
+    users.add(key.slice(0, key.lastIndexOf("@")));
+  }
+  return { violations, users: users.size };
+}
 
 /**
  * 予約の一覧を、画面に出す数字とグラフの形に変える。DB には触らない。
  *
  * reservations には booked と cancelled の両方を渡す。
  * キャンセル率だけが cancelled を見て、他はすべて booked だけを数える。
+ *
+ * weekWindowReservations は「週 1 回までのルール」の検算にだけ使う。
+ * 期間の端では週が途中で切れるため（例: 月曜が期間の外、水曜が中）、
+ * **期間に重なる週まるごと**を渡すと数え漏れがなくなる。省略したら reservations をそのまま使う。
  */
 export function aggregate(params: {
   range: DateRange;
   reservations: StatsReservation[];
   beds: { id: string; name: string }[];
+  weekWindowReservations?: StatsReservation[];
 }): Stats {
   const { range, reservations, beds } = params;
   const granularity = pickGranularity(range);
@@ -300,6 +342,7 @@ export function aggregate(params: {
       name: beds.find((b) => b.id === bedId)?.name ?? "（削除されたベッド）",
       count,
     })),
+    weeklyRule: countWeeklyRuleViolations(params.weekWindowReservations ?? reservations),
     // 「よく使っている人」から並べる。回数が同じなら最近使った順、それも同じなら名前順
     users: [...userRows.values()].sort(
       (a, b) =>
@@ -316,11 +359,16 @@ export async function fetchStats(range: DateRange): Promise<Stats> {
   // 終了日その日を含めるため、翌日の 0 時「未満」で切る
   const end = toDateTime(shiftDate(range.to, 1), "00:00");
 
+  // 週 1 回ルールの検算だけは、期間に重なる**週まるごと**で見ないと数え漏れる
+  // （月曜が期間の外・水曜が中、というときに 2 件目に気づけない）。少し広めに読む
+  const weekStart = toDateTime(mondayOf(range.from), "00:00");
+  const weekEnd = toDateTime(shiftDate(mondayOf(range.to), 7), "00:00");
+
   const [beds, reservations] = await Promise.all([
     prisma.bed.findMany({ orderBy: { id: "asc" } }),
     prisma.reservation.findMany({
       // キャンセル率を出すため cancelled も読む。除外は aggregate() 側で行う
-      where: { startAt: { gte: start, lt: end } },
+      where: { startAt: { gte: weekStart, lt: weekEnd } },
       select: {
         userId: true,
         bedId: true,
@@ -334,19 +382,23 @@ export async function fetchStats(range: DateRange): Promise<Stats> {
     }),
   ]);
 
+  const rows: StatsReservation[] = reservations.map((r) => ({
+    userId: r.userId,
+    userName: r.user.name,
+    userRole: r.user.role,
+    bedId: r.bedId,
+    startAt: r.startAt,
+    treatmentMin: r.treatmentMin,
+    status: r.status,
+    cancelledById: r.cancelledById,
+  }));
+
   return aggregate({
     range,
     beds: beds.map((b) => ({ id: b.id, name: b.name })),
-    reservations: reservations.map((r) => ({
-      userId: r.userId,
-      userName: r.user.name,
-      userRole: r.user.role,
-      bedId: r.bedId,
-      startAt: r.startAt,
-      treatmentMin: r.treatmentMin,
-      status: r.status,
-      cancelledById: r.cancelledById,
-    })),
+    // 集計値は指定された期間ちょうどで数える。広く読んだぶんはここで落とす
+    reservations: rows.filter((r) => r.startAt >= start && r.startAt < end),
+    weekWindowReservations: rows,
   });
 }
 
