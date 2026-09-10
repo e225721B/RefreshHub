@@ -12,6 +12,8 @@ import {
   weekdaysFrom,
 } from "@/lib/dates";
 import { CLEANUP_MIN, STEP_MIN, toHHMM, toMinutes, type Slot } from "@/lib/slots";
+import { GENDER_LABEL, GENDERS, isGender } from "@/lib/roles";
+import type { SelectableTherapist } from "@/lib/therapists";
 import { RESERVATION_UPDATED_EVENT } from "@/lib/events";
 import { FlashToast } from "./FlashToast";
 import { GuideModal } from "./GuideModal";
@@ -25,11 +27,6 @@ const GRID_END = "20:00";
 /** ドラッグで選べる最大マス数。施術は最大 45 分（15 分 × 3 マス）。 */
 const MAX_CELLS = 3;
 
-const GENDERS = [
-  { value: "female" as const, label: "女性" },
-  { value: "male" as const, label: "男性" },
-];
-
 function timeRows(): string[] {
   const rows: string[] = [];
   for (let t = toMinutes(GRID_START); t < toMinutes(GRID_END); t += STEP_MIN) {
@@ -41,9 +38,18 @@ function timeRows(): string[] {
 /** ドラッグ中の選択範囲 */
 type Selection = { date: string; anchorRow: number; hoverRow: number };
 
-export function WeekSchedule({ userName }: { userName: string }) {
+export function WeekSchedule({
+  userName,
+  therapists,
+}: {
+  userName: string;
+  /** 絞り込みに出す施術者。担当候補になる人だけが渡ってくる（lib/therapists.ts） */
+  therapists: SelectableTherapist[];
+}) {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
-  const [genders, setGenders] = useState<string[]>(["female", "male"]);
+  // 絞り込みの条件はこれ 1 つ（Issue #9）。性別のチェックは「そのグループをまとめて ON/OFF」する操作で、
+  // 条件そのものは持たない。こうしないと性別と施術者で同じことを二重に管理することになる。
+  const [therapistIds, setTherapistIds] = useState<string[]>(() => therapists.map((t) => t.id));
   const [availability, setAvailability] = useState<WeekAvailability>({});
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -56,20 +62,34 @@ export function WeekSchedule({ userName }: { userName: string }) {
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
   const today = todayString();
-  const gendersKey = genders.join(",");
+  const therapistsKey = therapistIds.join(",");
+
+  /** 性別ごとの施術者グループ。「男性」の枠の中に男性の施術者を並べる（Issue #9） */
+  const groups = useMemo(() => {
+    const byGender = GENDERS.map((gender) => ({
+      key: gender as string,
+      label: GENDER_LABEL[gender],
+      members: therapists.filter((t) => t.gender === gender),
+    }));
+    // 想定外の性別値が入っていても、その人がチェックボックスから消えてしまわないよう受け皿を置く
+    const others = therapists.filter((t) => !isGender(t.gender));
+    return [...byGender, { key: "other", label: "その他", members: others }].filter(
+      (g) => g.members.length > 0,
+    );
+  }, [therapists]);
 
   const reload = useCallback(async () => {
-    setAvailability(await fetchWeekAvailability(monday, genders));
-    // gendersKey で依存を表す
+    setAvailability(await fetchWeekAvailability(monday, therapistIds));
+    // therapistsKey で依存を表す
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monday, gendersKey]);
+  }, [monday, therapistsKey]);
 
   useEffect(() => {
     startLoading(async () => {
-      setAvailability(await fetchWeekAvailability(monday, genders));
+      setAvailability(await fetchWeekAvailability(monday, therapistIds));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monday, gendersKey]);
+  }, [monday, therapistsKey]);
 
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
@@ -125,11 +145,31 @@ export function WeekSchedule({ userName }: { userName: string }) {
     setSelection({ ...selection, hoverRow: rowIndex });
   }
 
-  function toggleGender(value: string) {
+  /**
+   * 絞り込みを更新する。並び順は `therapists` の順に揃える。
+   * 順番がチェックした順に変わると、中身が同じでも別の条件として読み込み直してしまうため。
+   */
+  function applyTherapistFilter(next: Set<string>) {
     setSelection(null);
-    setGenders((prev) =>
-      prev.includes(value) ? prev.filter((g) => g !== value) : [...prev, value],
-    );
+    setTherapistIds(therapists.filter((t) => next.has(t.id)).map((t) => t.id));
+  }
+
+  function toggleTherapist(id: string) {
+    const next = new Set(therapistIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    applyTherapistFilter(next);
+  }
+
+  /** 性別のチェック = そのグループの施術者をまとめて ON / OFF する */
+  function toggleGroup(members: SelectableTherapist[]) {
+    const allSelected = members.every((m) => therapistIds.includes(m.id));
+    const next = new Set(therapistIds);
+    for (const m of members) {
+      if (allSelected) next.delete(m.id);
+      else next.add(m.id);
+    }
+    applyTherapistFilter(next);
   }
 
   /** 「確認する」。ここでは保存せず、内容確認モーダル（U-3）を開くだけ */
@@ -171,19 +211,58 @@ export function WeekSchedule({ userName }: { userName: string }) {
       <div className="flex flex-wrap items-end justify-between gap-6 rounded-2xl border border-rose-100 bg-white p-4 shadow-sm dark:border-rose-500/20 dark:bg-white/[.04]">
         <fieldset className="flex flex-col gap-1 text-sm">
           <legend className="font-medium">施術者</legend>
-          <div className="flex gap-4 py-2">
-            {GENDERS.map((g) => (
-              <label key={g.value} className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={genders.includes(g.value)}
-                  onChange={() => toggleGender(g.value)}
-                  className="size-4 accent-rose-500"
-                />
-                <span>{g.label}</span>
-              </label>
-            ))}
-          </div>
+          {groups.length === 0 ? (
+            <p className="py-2 text-black/60 dark:text-white/60">
+              受付中の施術者がいません。管理者に確認してください。
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-3 py-2">
+              {groups.map((group) => {
+                const selectedCount = group.members.filter((m) =>
+                  therapistIds.includes(m.id),
+                ).length;
+                const allSelected = selectedCount === group.members.length;
+
+                return (
+                  <div
+                    key={group.key}
+                    className="rounded-xl border border-rose-200 px-3 py-2 dark:border-rose-500/30"
+                  >
+                    <label className="flex cursor-pointer items-center gap-2 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        // 「一部だけ選択中」は checked では表せないため、DOM の indeterminate を直接立てる
+                        ref={(el) => {
+                          if (el) el.indeterminate = selectedCount > 0 && !allSelected;
+                        }}
+                        onChange={() => toggleGroup(group.members)}
+                        className="size-4 accent-rose-500"
+                      />
+                      <span>{group.label}</span>
+                      <span className="text-xs font-normal tabular-nums text-black/50 dark:text-white/50">
+                        {selectedCount} / {group.members.length}
+                      </span>
+                    </label>
+                    {/* 施術者は横に並べる。人数が増えたら折り返す */}
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rose-100 pt-1.5 pl-6 dark:border-rose-500/20">
+                      {group.members.map((t) => (
+                        <label key={t.id} className="flex cursor-pointer items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={therapistIds.includes(t.id)}
+                            onChange={() => toggleTherapist(t.id)}
+                            className="size-4 accent-rose-500"
+                          />
+                          <span>{t.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </fieldset>
 
         <GuideModal />
@@ -192,8 +271,15 @@ export function WeekSchedule({ userName }: { userName: string }) {
       <p className="text-sm text-black/70 dark:text-white/70">
         <strong>表を縦にドラッグして施術時間を選びます。</strong>
         1 マス = 15 分、最大 3 マス（45 分）まで。
-        ベッドと施術者は自動で割り当てられます。
+        チェックした施術者のうち空いている人と、ベッドが自動で割り当てられます。
       </p>
+
+      {groups.length > 0 && therapistIds.length === 0 && (
+        <p className="rounded border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          施術者が 1 人も選ばれていないため、空き枠は表示されません。
+          上の「施術者」で 1 人以上チェックしてください。
+        </p>
+      )}
 
       <FlashToast message={message} />
 
@@ -221,8 +307,8 @@ export function WeekSchedule({ userName }: { userName: string }) {
               </p>
               {selected.valid && selected.slot ? (
                 <p className="text-black/60 dark:text-white/60">
-                  {selected.slot.bedName} /{" "}
-                  {selected.slot.gender === "female" ? "女性" : "男性"}の施術者
+                  {selected.slot.bedName} / {selected.slot.therapistName}
+                  {isGender(selected.slot.gender) && `（${GENDER_LABEL[selected.slot.gender]}）`}
                 </p>
               ) : (
                 <p className="text-red-800 dark:text-red-300">

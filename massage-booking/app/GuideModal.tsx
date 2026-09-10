@@ -60,7 +60,8 @@ export function GuideModal() {
               <div>
                 <dt className="font-semibold">施術者</dt>
                 <dd>
-                  女性・男性の施術者がいます。一覧に性別が表示されるので、絞り込んで選べます。
+                  女性・男性の施術者がいます。表の上のチェックボックスで、性別ごとにまとめて、
+                  または施術者ごとに絞り込めます。
                   <span className="text-black/60 dark:text-white/60">
                     （午後は男性のみの場合があります）
                   </span>
@@ -68,7 +69,10 @@ export function GuideModal() {
               </div>
               <div>
                 <dt className="font-semibold">施術者の指名</dt>
-                <dd>指名は不要です。時間を選ぶと、空いている施術者とベッドが自動で決まります。</dd>
+                <dd>
+                  指名は不要です。時間を選ぶと、チェックした施術者のうち空いている人とベッドが自動で決まります。
+                  特定の人にお願いしたいときは、その人だけにチェックを入れてください。
+                </dd>
               </div>
             </dl>
             <button

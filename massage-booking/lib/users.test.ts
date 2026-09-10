@@ -262,7 +262,8 @@ test("予約があるユーザーは削除されず無効になり、ログイ�
 
 /** その週の空き枠に出てくるマッサージ師の一覧。担当候補に出るかどうかを見るために使う */
 async function therapistIdsInWeek(monday: string): Promise<Set<string>> {
-  const week = await fetchWeekAvailability(monday, ["female", "male"]);
+  // 絞り込みなし（施術者を指定しない）で、担当候補に出てくる人を全部集める
+  const week = await fetchWeekAvailability(monday);
   const ids = new Set<string>();
   for (const byTreatment of Object.values(week)) {
     for (const byTime of Object.values(byTreatment)) {

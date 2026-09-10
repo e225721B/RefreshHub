@@ -152,75 +152,102 @@ test("保存直前の確認: ベッドもマッサージ師も空いていれば
   assert.equal(ok, true);
 });
 
-test("性別を指定すると、その性別の空いている施術者が割り当てられる", () => {
-  const shifts = [
-    { therapistId: "t1", startTime: "09:00", endTime: "10:00" }, // 女性
-    { therapistId: "t2", startTime: "09:00", endTime: "10:00" }, // 男性
-  ];
-  const female = getAvailableSlots({
-    shifts,
-    beds,
-    therapists,
-    reservations: [],
-    treatmentMin: 45,
-    genders: ["female"],
-  });
-  assert.equal(female.length, 1);
-  assert.equal(female[0].therapistId, "t1");
+// --- Issue #9: 施術者ごとの絞り込み ---
+// 画面の「女性」「男性」のチェックは、そのグループの施術者をまとめて選ぶ操作なので、
+// ここに渡ってくる条件は施術者 id の 1 種類だけになる。
 
-  // 男性を指定しても枠が出ること（女性が先頭にいても 0 件にならない）
-  const male = getAvailableSlots({
-    shifts,
+/** 女性（t1）と男性（t2）が同じ時間帯に勤務している状態 */
+const twoTherapistShifts = [
+  { therapistId: "t1", startTime: "09:00", endTime: "10:00" }, // 佐藤（女性）
+  { therapistId: "t2", startTime: "09:00", endTime: "10:00" }, // 鈴木（男性）
+];
+
+test("施術者を指定すると、その人が割り当てられる", () => {
+  const sato = getAvailableSlots({
+    shifts: twoTherapistShifts,
     beds,
     therapists,
     reservations: [],
     treatmentMin: 45,
-    genders: ["male"],
+    therapistIds: ["t1"],
   });
-  assert.equal(male.length, 1);
-  assert.equal(male[0].therapistId, "t2");
+  assert.equal(sato.length, 1);
+  assert.equal(sato[0].therapistId, "t1");
+
+  // 先頭にいない人を指定しても枠が出ること（「最初に空いている人」を返してしまわない）
+  const suzuki = getAvailableSlots({
+    shifts: twoTherapistShifts,
+    beds,
+    therapists,
+    reservations: [],
+    treatmentMin: 45,
+    therapistIds: ["t2"],
+  });
+  assert.equal(suzuki.length, 1);
+  assert.equal(suzuki[0].therapistId, "t2");
 });
 
-test("指定した性別の施術者が勤務していなければ枠は出ない", () => {
+test("指定した施術者が勤務していなければ枠は出ない", () => {
   const slots = getAvailableSlots({
-    shifts: [{ therapistId: "t2", startTime: "09:00", endTime: "10:00" }], // 男性のみ
+    shifts: [{ therapistId: "t2", startTime: "09:00", endTime: "10:00" }], // 鈴木だけ勤務
     beds,
     therapists,
     reservations: [],
     treatmentMin: 45,
-    genders: ["female"],
+    therapistIds: ["t1"], // 勤務していない佐藤を指定
   });
   assert.equal(slots.length, 0);
 });
 
-test("女性と男性の両方にチェックを入れると、どちらの施術者でも枠が出る", () => {
-  const shifts = [
-    { therapistId: "t1", startTime: "09:00", endTime: "10:00" }, // 女性
-    { therapistId: "t2", startTime: "09:00", endTime: "10:00" }, // 男性
-  ];
-  const both = getAvailableSlots({
-    shifts,
+test("指定した施術者が予約で埋まっていれば、他の人が空いていても枠は出ない", () => {
+  const slots = getAvailableSlots({
+    shifts: twoTherapistShifts,
     beds,
     therapists,
     reservations: [
-      // 女性が埋まっていても、男性が空いていれば枠は残る
+      // 佐藤だけ埋まっている。鈴木は空いているが、指定していないので割り当ててはいけない
       { bedId: "b1", therapistId: "t1", startTime: "09:00", blockEndTime: "10:00" },
     ],
     treatmentMin: 45,
-    genders: ["female", "male"],
+    therapistIds: ["t1"],
   });
-  assert.equal(both.length, 1);
-  assert.equal(both[0].therapistId, "t2");
+  assert.equal(slots.length, 0);
 });
 
-test("チェックが空なら絞り込みなしとして扱う", () => {
+test("2 人以上を選んでいれば、1 人が埋まっていても別の人で枠が残る", () => {
+  const slots = getAvailableSlots({
+    shifts: twoTherapistShifts,
+    beds,
+    therapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t1", startTime: "09:00", blockEndTime: "10:00" },
+    ],
+    treatmentMin: 45,
+    therapistIds: ["t1", "t2"],
+  });
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].therapistId, "t2");
+});
+
+test("1 人も選ばれていなければ（空配列）枠は出ない", () => {
+  const slots = getAvailableSlots({
+    shifts: twoTherapistShifts,
+    beds,
+    therapists,
+    reservations: [],
+    treatmentMin: 45,
+    therapistIds: [],
+  });
+  assert.equal(slots.length, 0);
+});
+
+test("指定を省略すれば絞り込みなしとして扱う（空配列とは意味が違う）", () => {
   const slots = getAvailableSlots({
     shifts: [{ therapistId: "t1", startTime: "09:00", endTime: "10:00" }],
     beds,
     therapists,
     reservations: [],
     treatmentMin: 45,
-    genders: [],
   });
   assert.equal(slots.length, 1);
 });

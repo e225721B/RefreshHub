@@ -77,13 +77,20 @@ export function getAvailableSlots(params: {
   reservations: Reservation[];
   treatmentMin: number;
   /**
-   * 希望する施術者の性別。チェックボックスで複数選べる。
-   * 省略または空配列なら絞り込みなし（空いている人から自動で割り当てる）。
+   * 希望する施術者の id（Issue #9）。画面のチェックボックスで選ばれた人。
+   *
+   * - 省略（undefined）: 絞り込みなし。勤務中で空いている人から自動で割り当てる
+   * - 空配列: 誰も選ばれていない ＝ 該当なし（0 件）
+   *
+   * 性別での絞り込みは「その性別の施術者をまとめてチェックする」操作に置き換えた。
+   * ここで受け取る条件を施術者 id の 1 種類だけにして、性別と施術者の二重管理を避けている。
    */
-  genders?: Gender[];
+  therapistIds?: string[];
 }): Slot[] {
-  const { shifts, beds, therapists, reservations, treatmentMin, genders } = params;
-  const genderFilter = genders && genders.length > 0 ? new Set<string>(genders) : null;
+  const { shifts, beds, therapists, reservations, treatmentMin, therapistIds } = params;
+  const therapistFilter = therapistIds ? new Set(therapistIds) : null;
+  // 1 人も選ばれていなければ、割り当てられる人がいないので枠は出ない
+  if (therapistFilter && therapistFilter.size === 0) return [];
   const blockMin = treatmentMin + CLEANUP_MIN;
   const therapistById = new Map(therapists.map((t) => [t.id, t]));
   const bedById = new Map(beds.map((b) => [b.id, b]));
@@ -104,17 +111,13 @@ export function getAvailableSlots(params: {
     const end = start + blockMin;
 
     // この時間帯に勤務していて、かつ予約が入っていないマッサージ師。
-    // 性別の希望があれば、その条件を満たす人だけから選ぶ。
+    // 希望する施術者が指定されていれば、その人たちの中だけから選ぶ。
     // 希望を無視して「最初に空いている人」を割り当てると、
-    // 午前は常に同じ人が選ばれ、他の性別で絞り込んだとき 0 件になってしまう。
+    // 午前は常に同じ人が選ばれ、他の人で絞り込んだとき 0 件になってしまう。
     const freeTherapist = shifts
       .filter((s) => toMinutes(s.startTime) <= start && end <= toMinutes(s.endTime))
       .map((s) => s.therapistId)
-      .filter((therapistId) => {
-        if (!genderFilter) return true;
-        const g = therapistById.get(therapistId)?.gender;
-        return g !== undefined && genderFilter.has(g);
-      })
+      .filter((therapistId) => !therapistFilter || therapistFilter.has(therapistId))
       .find(
         (therapistId) =>
           !reservations.some(
