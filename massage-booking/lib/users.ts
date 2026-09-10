@@ -103,37 +103,6 @@ export async function createUserAccount(input: CreateUserInput): Promise<CreateU
   }
 }
 
-export type UserHistory = {
-  /** 利用者としての予約 */
-  reservations: number;
-  /** マッサージ師としての担当予約 */
-  assignments: number;
-  /** 通知・キャンセル操作・登録した欠勤など、消すと辿れなくなる記録 */
-  others: number;
-};
-
-export function hasHistory(h: UserHistory): boolean {
-  return h.reservations + h.assignments + h.others > 0;
-}
-
-/**
- * そのユーザーが残している記録の件数を数える。
- * 削除の可否を決めるためではなく、**一覧と確認ダイアログに「利用実績」として見せる**ために使う
- * （削除は記録の有無によらず論理削除に統一した。下の deleteUserAccount を参照）。
- */
-export async function countUserHistory(userId: string): Promise<UserHistory> {
-  const therapist = await prisma.therapist.findUnique({ where: { userId } });
-  const [reservations, assignments, notifications, cancellations, absencesCreated] =
-    await Promise.all([
-      prisma.reservation.count({ where: { userId } }),
-      therapist ? prisma.reservation.count({ where: { therapistId: therapist.id } }) : 0,
-      prisma.notification.count({ where: { toUserId: userId } }),
-      prisma.reservation.count({ where: { cancelledById: userId } }),
-      prisma.therapistAbsence.count({ where: { createdById: userId } }),
-    ]);
-  return { reservations, assignments, others: notifications + cancellations + absencesCreated };
-}
-
 export type DeleteUserResult = { ok: true; name: string } | { ok: false; message: string };
 
 /**

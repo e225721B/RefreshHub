@@ -16,14 +16,6 @@ import {
 
 const INITIAL: UserActionState = { error: null, message: null };
 
-/**
- * 記録があるか。lib/users.ts の hasHistory と同じ判定だが、あちらは Prisma を読み込むモジュールなので
- * クライアント側から import しない（ブラウザ向けの束に Prisma が混ざる）。ここは表示のためだけに数える。
- */
-function hasHistory(h: UserRow["history"]): boolean {
-  return h.reservations + h.assignments + h.others > 0;
-}
-
 function SubmitButton({ label, className }: { label: string; className: string }) {
   const { pending } = useFormStatus();
   return (
@@ -101,14 +93,10 @@ export function UserActions({ user }: { user: UserRow }) {
                 アカウントは一覧に残り、過去の予約と集計もそのままです
                 （誰が使ったかを後から追えるようにするため）。あとから有効に戻せます。
               </p>
-              {hasHistory(user.history) && (
+              {user.usageCount > 0 && (
                 <p className="mt-1">
                   このユーザーには
-                  <strong>
-                    {user.history.reservations > 0 && ` 予約 ${user.history.reservations} 件`}
-                    {user.history.assignments > 0 && ` 担当 ${user.history.assignments} 件`}
-                    {user.history.others > 0 && ` その他の記録 ${user.history.others} 件`}
-                  </strong>
+                  <strong> 利用 {user.usageCount} 回</strong>
                   の記録があります。
                 </p>
               )}
