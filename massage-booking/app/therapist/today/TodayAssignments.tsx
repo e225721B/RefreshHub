@@ -4,40 +4,39 @@ import { useState } from "react";
 import type { AssignmentRow, MyAssignments } from "@/app/actions/therapist";
 import { formatShort } from "@/lib/dates";
 import { ReservationDetailModal } from "./ReservationDetailModal";
+import { UserHistoryModal } from "./UserHistoryModal";
 
 function AssignmentsTable({
   title,
   count,
-  totalTreatmentMin,
   rows,
   emptyText,
   onSelect,
+  onSelectUser,
 }: {
   title: string;
   count: number;
-  totalTreatmentMin: number;
   rows: AssignmentRow[];
   emptyText: string;
   onSelect: (id: string) => void;
+  onSelectUser: (userId: string) => void;
 }) {
   return (
-    <section className="rounded-2xl border border-black/10 bg-white/80 dark:border-white/10 dark:bg-white/5">
-      <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-bold text-stone-800 dark:text-stone-100">{title}</h2>
-        <p className="text-sm text-stone-500 dark:text-stone-400">
-          {count} 件 / 施術合計 {totalTreatmentMin} 分
-        </p>
+        <p className="text-sm text-stone-500 dark:text-stone-400">{count} 件</p>
       </div>
 
-      <div className="overflow-x-auto pb-1">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-black/10 dark:border-white/10">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
-            <tr className="border-y border-black/10 bg-rose-50/60 text-left text-rose-700/80 dark:border-white/10 dark:bg-rose-500/10 dark:text-rose-200/80">
-              <th className="px-4 py-3 font-medium">日程</th>
-              <th className="px-4 py-3 font-medium">施術時間</th>
-              <th className="px-4 py-3 font-medium">利用者</th>
-              <th className="px-4 py-3 font-medium">ベッド</th>
-              <th className="px-4 py-3 font-medium">詳細</th>
+            <tr className="bg-rose-50/60 text-left text-rose-700/80 dark:bg-rose-500/10 dark:text-rose-200/80">
+              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">日程</th>
+              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">施術時間</th>
+              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">利用者</th>
+              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">ベッド</th>
+              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">詳細</th>
             </tr>
           </thead>
           <tbody>
@@ -54,13 +53,21 @@ function AssignmentsTable({
                     {formatShort(row.date)} {row.startTime}
                   </td>
                   <td className="px-4 py-3">{row.treatmentMin} 分</td>
-                  <td className="px-4 py-3">{row.userName}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onSelectUser(row.userId)}
+                      className="text-rose-600 hover:underline dark:text-rose-300"
+                    >
+                      {row.userName}
+                    </button>
+                  </td>
                   <td className="px-4 py-3">{row.bedName}</td>
                   <td className="px-4 py-3">
                     <button
                       type="button"
                       onClick={() => onSelect(row.id)}
-                      className="text-sm text-rose-600 underline underline-offset-2 dark:text-rose-300"
+                      className="rounded-full border border-rose-300 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-500/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
                     >
                       詳細
                     </button>
@@ -77,6 +84,7 @@ function AssignmentsTable({
 
 export function TodayAssignments({ initialData }: { initialData: MyAssignments }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const data = initialData;
 
   if (!data.isTherapist) {
@@ -89,31 +97,26 @@ export function TodayAssignments({ initialData }: { initialData: MyAssignments }
 
   return (
     <div className="space-y-6">
-      {data.today.summary.nextIn !== null && (
-        <div className="rounded-2xl border border-rose-200/70 bg-rose-50/80 px-5 py-3 text-sm text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200">
-          次の施術まで {data.today.summary.nextIn} 分
-        </div>
-      )}
-
       <AssignmentsTable
         title="今日の予約"
         count={data.today.summary.count}
-        totalTreatmentMin={data.today.summary.totalTreatmentMin}
         rows={data.today.rows}
         emptyText="本日の予約はありません"
         onSelect={setSelectedId}
+        onSelectUser={setSelectedUserId}
       />
 
       <AssignmentsTable
         title="明日以降の予約"
         count={data.upcoming.summary.count}
-        totalTreatmentMin={data.upcoming.summary.totalTreatmentMin}
         rows={data.upcoming.rows}
         emptyText="今後の予約はありません"
         onSelect={setSelectedId}
+        onSelectUser={setSelectedUserId}
       />
 
       {selectedId && <ReservationDetailModal id={selectedId} onClose={() => setSelectedId(null)} />}
+      {selectedUserId && <UserHistoryModal userId={selectedUserId} onClose={() => setSelectedUserId(null)} />}
     </div>
   );
 }

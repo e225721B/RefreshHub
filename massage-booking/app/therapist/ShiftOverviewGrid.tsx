@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   listShiftOverview,
   type ShiftOverview as ShiftOverviewData,
@@ -80,8 +80,16 @@ export function ShiftOverviewGrid({
   // 自分の列を常に一番左に固定する
   const selected = showAll ? [...ownIds, ...otherIds] : fallbackIds;
 
+  const isFirstRender = useRef(true);
   useEffect(() => {
-    if (monday === initialMonday && !showAll) return;
+    // 初回マウント時は initialOverview（サーバーで取得済み）をそのまま使うのでスキップする。
+    // それ以降は monday / showAll が変わるたびに必ず再取得する
+    // （initialMonday と比較してスキップすると、他の週から戻ってきたときに
+    //  古い週のデータが overview に残ったままになり、予約が消えたように見える）。
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     startLoading(async () => setOverview(await listShiftOverview(monday, selected)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, showAll]);

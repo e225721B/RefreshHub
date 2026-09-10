@@ -32,6 +32,7 @@ export type AssignmentRow = {
   date: string;
   startTime: string;
   treatmentMin: number;
+  userId: string;
   userName: string;
   bedName: string;
 };
@@ -39,8 +40,8 @@ export type AssignmentRow = {
 export type MyAssignments = {
   isTherapist: boolean;
   therapistName: string | null;
-  today: { rows: AssignmentRow[]; summary: { count: number; totalTreatmentMin: number; nextIn: number | null } };
-  upcoming: { rows: AssignmentRow[]; summary: { count: number; totalTreatmentMin: number } };
+  today: { rows: AssignmentRow[]; summary: { count: number } };
+  upcoming: { rows: AssignmentRow[]; summary: { count: number } };
 };
 
 /** 自分の担当予約（AC-15）。今日ぶんと、明日以降ぶんをまとめて返す */
@@ -50,8 +51,8 @@ export async function listMyAssignments(): Promise<MyAssignments> {
   const empty: MyAssignments = {
     isTherapist: false,
     therapistName: null,
-    today: { rows: [], summary: { count: 0, totalTreatmentMin: 0, nextIn: null } },
-    upcoming: { rows: [], summary: { count: 0, totalTreatmentMin: 0 } },
+    today: { rows: [], summary: { count: 0 } },
+    upcoming: { rows: [], summary: { count: 0 } },
   };
   if (!therapist) return empty;
 
@@ -72,34 +73,31 @@ export async function listMyAssignments(): Promise<MyAssignments> {
     }),
   ]);
 
-  const now = new Date();
   const todayRows: AssignmentRow[] = todayReservations.map((r) => ({
     id: r.id,
     date: toDateString(r.startAt),
     startTime: hhmmOfLocal(r.startAt),
     treatmentMin: r.treatmentMin,
+    userId: r.userId,
     userName: r.user.name,
     bedName: r.bed.name,
   }));
-  const todayTotalTreatmentMin = todayRows.reduce((sum, r) => sum + r.treatmentMin, 0);
-  const nextRow = todayReservations.find((r) => r.endAt > now);
-  const nextIn = nextRow ? Math.max(0, Math.round((nextRow.startAt.getTime() - now.getTime()) / 60000)) : null;
 
   const upcomingRows: AssignmentRow[] = upcomingReservations.map((r) => ({
     id: r.id,
     date: toDateString(r.startAt),
     startTime: hhmmOfLocal(r.startAt),
     treatmentMin: r.treatmentMin,
+    userId: r.userId,
     userName: r.user.name,
     bedName: r.bed.name,
   }));
-  const upcomingTotalTreatmentMin = upcomingRows.reduce((sum, r) => sum + r.treatmentMin, 0);
 
   return {
     isTherapist: true,
     therapistName: therapist.user.name,
-    today: { rows: todayRows, summary: { count: todayRows.length, totalTreatmentMin: todayTotalTreatmentMin, nextIn } },
-    upcoming: { rows: upcomingRows, summary: { count: upcomingRows.length, totalTreatmentMin: upcomingTotalTreatmentMin } },
+    today: { rows: todayRows, summary: { count: todayRows.length } },
+    upcoming: { rows: upcomingRows, summary: { count: upcomingRows.length } },
   };
 }
 
@@ -111,12 +109,9 @@ export type AssignmentDetail = {
   startTime: string;
   endTime: string;
   bedName: string;
-  createdAtDate: string;
-  createdAtTime: string;
   visitCount: number;
   previousDate: string | null;
   note: string | null;
-  adminEmail: string | null;
 };
 
 /** 予約詳細（T-4）。自分の担当ぶんだけ見られる（管理者は例外） */
@@ -144,7 +139,6 @@ export async function getReservationDetail(id: string): Promise<AssignmentDetail
     orderBy: { startAt: "desc" },
   });
   const previous = priorBookings[1];
-  const admin = await prisma.user.findFirst({ where: { role: "admin", active: true }, orderBy: { name: "asc" } });
 
   return {
     id: reservation.id,
@@ -154,12 +148,51 @@ export async function getReservationDetail(id: string): Promise<AssignmentDetail
     startTime: hhmmOfLocal(reservation.startAt),
     endTime: hhmmOfLocal(reservation.endAt),
     bedName: reservation.bed.name,
-    createdAtDate: toDateString(reservation.createdAt),
-    createdAtTime: hhmmOfLocal(reservation.createdAt),
     visitCount: priorBookings.length,
     previousDate: previous ? toDateString(previous.startAt) : null,
     note: reservation.note,
-    adminEmail: admin?.email ?? null,
+  };
+}
+
+export type TreatmentHistoryRow = {
+  id: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  treatmentMin: number;
+  bedName: string;
+  note: string | null;
+};
+
+export type UserTreatmentHistory = { userName: string; rows: TreatmentHistoryRow[] };
+
+/** ある利用者について、自分（ログイン中のマッサージ師）が過去に担当した施術の一覧 */
+export async function listUserTreatmentHistory(userId: string): Promise<UserTreatmentHistory | null> {
+  const user = await requireRole(["therapist", "admin"]);
+  const therapist = await resolveMyTherapist(user.id);
+  if (!therapist) return null;
+
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) return null;
+
+  const now = new Date();
+  const reservations = await prisma.reservation.findMany({
+    where: { therapistId: therapist.id, userId, status: "booked", startAt: { lt: now } },
+    include: { bed: true },
+    orderBy: { startAt: "desc" },
+  });
+
+  return {
+    userName: target.name,
+    rows: reservations.map((r) => ({
+      id: r.id,
+      date: toDateString(r.startAt),
+      startTime: hhmmOfLocal(r.startAt),
+      endTime: hhmmOfLocal(r.endAt),
+      treatmentMin: r.treatmentMin,
+      bedName: r.bed.name,
+      note: r.note,
+    })),
   };
 }
 

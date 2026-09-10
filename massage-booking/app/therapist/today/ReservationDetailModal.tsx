@@ -6,9 +6,9 @@ import { formatShort } from "@/lib/dates";
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-stone-500 dark:text-stone-400">{label}</dt>
-      <dd className="text-right font-medium text-stone-800 dark:text-stone-100">{value}</dd>
+    <div className="rounded-xl border border-black/10 px-4 py-3 dark:border-white/10">
+      <dt className="text-xs text-stone-500 dark:text-stone-400">{label}</dt>
+      <dd className="mt-0.5 text-base font-bold text-stone-800 dark:text-stone-100">{value}</dd>
     </div>
   );
 }
@@ -40,17 +40,14 @@ export function ReservationDetailModal({ id, onClose }: { id: string; onClose: (
         ) : (
           <>
             <h2 className="text-lg font-bold text-stone-800 dark:text-stone-100">
-              {detail.startTime} の予約
+              {formatShort(detail.date)}の予約
             </h2>
             <dl className="mt-4 space-y-2.5 text-sm">
               <Row label="利用者" value={detail.userName} />
               <Row
-                label="施術時間"
-                value={`${detail.treatmentMin} 分（${detail.startTime}〜${detail.endTime}）`}
+                label="施術時間・ベッド"
+                value={`${detail.startTime}〜${detail.endTime}（${detail.treatmentMin} 分）・${detail.bedName}`}
               />
-              <Row label="押さえる枠" value={`${detail.startTime}〜${detail.endTime}`} />
-              <Row label="ベッド" value={detail.bedName} />
-              <Row label="予約日時" value={`${detail.createdAtDate} ${detail.createdAtTime}`} />
               <Row
                 label="利用回数"
                 value={
@@ -61,23 +58,13 @@ export function ReservationDetailModal({ id, onClose }: { id: string; onClose: (
               />
               {detail.note && <Row label="備考" value={detail.note} />}
             </dl>
-            <div className="mt-6 flex gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 rounded-full border border-black/15 px-4 py-2 text-sm dark:border-white/20"
-              >
-                閉じる
-              </button>
-              {detail.adminEmail && (
-                <a
-                  href={`mailto:${detail.adminEmail}`}
-                  className="flex-1 rounded-full bg-rose-500 px-4 py-2 text-center text-sm text-white"
-                >
-                  管理者に連絡
-                </a>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-6 w-full rounded-full border border-black/15 px-4 py-2 text-sm dark:border-white/20"
+            >
+              閉じる
+            </button>
           </>
         )}
       </div>
