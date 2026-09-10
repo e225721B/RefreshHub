@@ -30,6 +30,9 @@ export default async function AdminUsersPage() {
           <Link href="/admin" className="text-sm underline underline-offset-4">
             予約状況へ戻る
           </Link>
+          <Link href="/admin/stats" className="text-sm underline underline-offset-4">
+            集計
+          </Link>
           <UserBar user={user} />
         </div>
       </header>
@@ -54,7 +57,13 @@ export default async function AdminUsersPage() {
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u.id}>
+              // 集計画面（A-2）の一覧表から /admin/users#user-<id> で飛んでくる。
+              // 飛んできた行だけ target: で色を付け、どの人を見に来たか分かるようにする
+              <tr
+                key={u.id}
+                id={`user-${u.id}`}
+                className="scroll-mt-24 target:bg-amber-100/70 dark:target:bg-amber-400/15"
+              >
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.name}</td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">{u.email}</td>
                 <td className="border border-black/10 px-3 py-2 dark:border-white/15">
