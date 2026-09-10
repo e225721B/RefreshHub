@@ -111,6 +111,7 @@ export default async function AdminPage({
           <UserBar user={user} />
         </div>
       </header>
+    <main/>
     <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">
       <AdminHeader title="予約状況" current="/admin" user={user} />
 
