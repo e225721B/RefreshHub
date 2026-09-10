@@ -15,7 +15,7 @@ export function GuideModal() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border border-black/20 px-3 py-2 text-sm underline-offset-2 hover:underline dark:border-white/25"
+        className="rounded-full border border-rose-200 px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
       >
         利用ガイドを見る
       </button>
@@ -74,7 +74,7 @@ export function GuideModal() {
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="mt-6 w-full rounded bg-foreground px-4 py-2 text-background"
+              className="mt-6 w-full rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-2 font-semibold text-white shadow-sm"
             >
               閉じる
             </button>

@@ -1,12 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import {
-  createReservation,
-  fetchWeekAvailability,
-  listActiveUsersForBooking,
-  type WeekAvailability,
-} from "./actions/booking";
+import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -17,7 +12,10 @@ import {
   weekdaysFrom,
 } from "@/lib/dates";
 import { CLEANUP_MIN, STEP_MIN, toHHMM, toMinutes, type Slot } from "@/lib/slots";
+import { RESERVATION_UPDATED_EVENT } from "@/lib/events";
+import { FlashToast } from "./FlashToast";
 import { GuideModal } from "./GuideModal";
+import { useFlashMessage } from "./useFlashMessage";
 
 // 表に並べる時間の範囲。稼働時間（9:00〜14:00 / 15:00〜20:00）を含む幅で描き、
 // 休憩時間は「空きが無い」として自動的に灰色になる。
@@ -43,16 +41,15 @@ function timeRows(): string[] {
 /** ドラッグ中の選択範囲 */
 type Selection = { date: string; anchorRow: number; hoverRow: number };
 
-export function WeekSchedule() {
+export function WeekSchedule({ userName }: { userName: string }) {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   const [genders, setGenders] = useState<string[]>(["female", "male"]);
-  // 暫定: ログイン機能（A-1）が入るまでの橋渡し。それまでは一覧から選ぶ（app/actions/booking.ts 参照）。
-  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
-  const [userId, setUserId] = useState("");
   const [availability, setAvailability] = useState<WeekAvailability>({});
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const { message, showMessage, clearMessage } = useFlashMessage();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [note, setNote] = useState("");
   const [loading, startLoading] = useTransition();
   const [saving, setSaving] = useState(false);
 
@@ -74,14 +71,7 @@ export function WeekSchedule() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
 
-  useEffect(() => {
-    listActiveUsersForBooking().then((list) => {
-      setUsers(list);
-      setUserId((current) => current || list[0]?.id || "");
-    });
-  }, []);
-
-  /** その日・その時刻から 15 分の施術を始められるか（＝マスが緑になる条件） */
+  /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
     if (isPast(date)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
@@ -124,7 +114,7 @@ export function WeekSchedule() {
   function startDrag(date: string, rowIndex: number) {
     if (saving || loading) return;
     if (!isCellOpen(date, rows[rowIndex])) return;
-    setMessage(null);
+    clearMessage();
     setSelection({ date, anchorRow: rowIndex, hoverRow: rowIndex });
     setDragging(true);
   }
@@ -142,22 +132,34 @@ export function WeekSchedule() {
     );
   }
 
-  async function confirmReservation() {
+  /** 「確認する」。ここでは保存せず、内容確認モーダル（U-3）を開くだけ */
+  function openConfirm() {
+    if (!selected || !selected.valid) return;
+    clearMessage();
+    setNote("");
+    setConfirmOpen(true);
+  }
+
+  /** モーダルの「予約を確定する」。ここで実際に保存する */
+  async function submitReservation() {
     if (!selected || !selected.slot) return;
-    if (!userId) {
-      setMessage({ ok: false, text: "利用者を選んでください" });
-      return;
-    }
+    const slot = selected.slot;
     setSaving(true);
     const result = await createReservation({
-      userId,
       date: selected.date,
       startTime: selected.startTime,
       treatmentMin: selected.treatmentMin,
-      bedId: selected.slot.bedId,
-      therapistId: selected.slot.therapistId,
+      bedId: slot.bedId,
+      therapistId: slot.therapistId,
+      note,
     });
-    setMessage({ ok: result.ok, text: result.message });
+    setConfirmOpen(false);
+    showMessage(result.ok, result.message);
+    if (result.ok) {
+      // 「自分の予約」は別コンポーネントで自前管理しているため、
+      // イベントで知らせてその場で最新化する（RESERVATION_UPDATED_EVENT）。
+      window.dispatchEvent(new Event(RESERVATION_UPDATED_EVENT));
+    }
     setSelection(null);
     await reload();
     setSaving(false);
@@ -166,24 +168,7 @@ export function WeekSchedule() {
   return (
     <div className="space-y-5">
       {/* 条件 */}
-      <div className="flex flex-wrap items-end gap-6 rounded-lg border border-black/10 bg-black/[.02] p-4 dark:border-white/15 dark:bg-white/[.04]">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">利用者</span>
-          {/* 暫定: ログイン機能（A-1）が入るまでの橋渡し。ログイン後は自動で入るようになる（B-1）。 */}
-          <select
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            className="rounded border border-black/20 px-3 py-2 dark:border-white/25 dark:bg-transparent"
-          >
-            {users.length === 0 && <option value="">読み込み中…</option>}
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
+      <div className="flex flex-wrap items-end justify-between gap-6 rounded-2xl border border-rose-100 bg-white p-4 shadow-sm dark:border-rose-500/20 dark:bg-white/[.04]">
         <fieldset className="flex flex-col gap-1 text-sm">
           <legend className="font-medium">施術者</legend>
           <div className="flex gap-4 py-2">
@@ -193,7 +178,7 @@ export function WeekSchedule() {
                   type="checkbox"
                   checked={genders.includes(g.value)}
                   onChange={() => toggleGender(g.value)}
-                  className="size-4"
+                  className="size-4 accent-rose-500"
                 />
                 <span>{g.label}</span>
               </label>
@@ -207,34 +192,23 @@ export function WeekSchedule() {
       <p className="text-sm text-black/70 dark:text-white/70">
         <strong>表を縦にドラッグして施術時間を選びます。</strong>
         1 マス = 15 分、最大 3 マス（45 分）まで。
-        清掃・準備の 15 分は自動で足されるため、押さえる枠はドラッグした長さ + 15 分になります。
         ベッドと施術者は自動で割り当てられます。
       </p>
 
-      {message && (
-        <p
-          className={`rounded border px-4 py-3 text-sm ${
-            message.ok
-              ? "border-green-600/30 bg-green-600/10 text-green-800 dark:text-green-300"
-              : "border-red-600/30 bg-red-600/10 text-red-800 dark:text-red-300"
-          }`}
-        >
-          {message.text}
-        </p>
-      )}
+      <FlashToast message={message} />
 
       {/*
         選択中の内容と確定ボタン。
-        高さを常に確保しておくのは、ドラッグの途中でこの欄が現れて
-        表が下にずれると、狙ったマスと違うマスが選ばれてしまうため。
+        fixed で画面下に浮かせているので、表れても表の位置は動かない
+        （＝ドラッグ中に表が動いて違うマスを拾ってしまう事故が起きない）。
       */}
-      <div className="min-h-20">
-        {selected ? (
+      {selected && (
+        <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
           <div
-            className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
+            className={`flex w-full max-w-2xl flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm shadow-lg backdrop-blur ${
               selected.valid
-                ? "border-blue-600/40 bg-blue-500/10"
-                : "border-red-600/40 bg-red-600/10"
+                ? "border-rose-400/50 bg-rose-50/95 dark:bg-rose-950/90"
+                : "border-red-600/40 bg-red-50/95 dark:bg-red-950/90"
             }`}
           >
             <div>
@@ -260,26 +234,22 @@ export function WeekSchedule() {
               <button
                 type="button"
                 onClick={() => setSelection(null)}
-                className="rounded border border-black/20 px-3 py-2 dark:border-white/25"
+                className="rounded-full border border-black/20 px-3 py-2 dark:border-white/25"
               >
                 取り消す
               </button>
               <button
                 type="button"
                 disabled={!selected.valid || saving}
-                onClick={confirmReservation}
-                className="rounded bg-foreground px-4 py-2 text-background disabled:opacity-40"
+                onClick={openConfirm}
+                className="rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-2 font-semibold text-white shadow-sm disabled:opacity-40"
               >
-                {saving ? "予約しています…" : "この内容で予約する"}
+                確認する
               </button>
             </div>
           </div>
-        ) : (
-          <div className="flex h-full items-center rounded-lg border border-dashed border-black/15 px-4 py-3 text-sm text-black/50 dark:border-white/20 dark:text-white/50">
-            表の緑のマスを縦にドラッグすると、ここに予約内容が出ます。
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* 週の切り替え */}
       <div className="flex items-center justify-center gap-4">
@@ -319,11 +289,11 @@ export function WeekSchedule() {
       {/* 凡例 */}
       <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-black/60 dark:text-white/60">
         <span className="flex items-center gap-1.5">
-          <span className="inline-block size-3 rounded-sm bg-emerald-500/25" />
+          <span className="inline-block size-3 rounded-sm bg-rose-200 dark:bg-rose-400/40" />
           空いている（ドラッグで選ぶ）
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="inline-block size-3 rounded-sm bg-blue-500/50" />
+          <span className="inline-block size-3 rounded-sm bg-rose-500" />
           選択中
         </span>
         <span className="flex items-center gap-1.5">
@@ -344,12 +314,12 @@ export function WeekSchedule() {
                 <th
                   key={date}
                   className={`border border-black/10 px-2 py-2 text-center dark:border-white/15 ${
-                    date === today ? "bg-blue-500/10" : ""
+                    date === today ? "border-b-2 border-b-rose-500" : ""
                   }`}
                 >
                   {formatShort(date)}
                   {date === today && (
-                    <span className="ml-1 text-xs font-normal text-blue-700 dark:text-blue-300">
+                    <span className="ml-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
                       今日
                     </span>
                   )}
@@ -371,10 +341,10 @@ export function WeekSchedule() {
                   let tone = "bg-black/15 dark:bg-white/25"; // 空きなし
                   if (inSelection) {
                     tone = selectionValid
-                      ? "bg-blue-500/50"
+                      ? "bg-rose-500"
                       : "bg-red-500/45";
                   } else if (open) {
-                    tone = "bg-emerald-500/10 dark:bg-emerald-400/15 hover:bg-emerald-500/30";
+                    tone = "bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/20 dark:hover:bg-rose-400/35";
                   }
 
                   return (
@@ -404,6 +374,64 @@ export function WeekSchedule() {
       </div>
 
       {loading && <p className="text-center text-sm">空き状況を読み込んでいます…</p>}
+
+      {/* 予約内容の確認（U-3） */}
+      {confirmOpen && selected && selected.valid && selected.slot && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !saving && setConfirmOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-gradient-to-b from-rose-100 to-orange-50 p-1 shadow-xl dark:from-rose-950/60 dark:to-orange-950/40"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="rounded-xl bg-background p-6">
+              <h2 className="mb-4 text-lg font-bold">この内容で予約しますか</h2>
+              <div className="mb-4 space-y-1 rounded border border-rose-100 px-4 py-3 text-sm dark:border-rose-500/20">
+                <p>
+                  日時　{formatShort(selected.date)} {selected.startTime}〜{selected.blockEndTime}
+                </p>
+                <p>施術時間　{selected.treatmentMin} 分</p>
+                <p>ベッド　{selected.slot.bedName}</p>
+                <p>
+                  施術者　{selected.slot.therapistName}（
+                  {selected.slot.gender === "female" ? "女性" : "男性"}）
+                </p>
+                <p>お名前　{userName}</p>
+              </div>
+              <label className="mb-6 block text-sm">
+                <span className="mb-1 block font-medium">備考（任意）</span>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={50}
+                  rows={2}
+                  placeholder="施術者への伝達事項など"
+                  className="w-full rounded border border-black/15 bg-background px-3 py-2 text-sm dark:border-white/20"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setConfirmOpen(false)}
+                  className="rounded-full border border-black/20 px-4 py-2 text-sm dark:border-white/25"
+                >
+                  戻る
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={submitReservation}
+                  className="rounded-full bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+                >
+                  {saving ? "予約しています…" : "予約を確定する"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
