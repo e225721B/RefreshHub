@@ -9,6 +9,7 @@ import { verifyPassword } from "./password";
 import { type CookieJar, login } from "./session";
 import { isValidPassword } from "./generate-password";
 import { createUserAccount, deleteUserAccount, reactivateUserAccount } from "./users";
+import { fetchWeekAvailability } from "@/app/actions/booking";
 
 /** このテストで作ったユーザーだけを消すための目印 */
 const SUFFIX = `+test-${Date.now()}@example.com`;
@@ -255,6 +256,63 @@ test("予約があるユーザーは削除されず無効になり、ログイ�
   await reactivateUserAccount(created.user.id);
   const again = await login(memoryJar(), email, password);
   assert.equal(again.ok, true);
+});
+
+/** その週の空き枠に出てくるマッサージ師の一覧。担当候補に出るかどうかを見るために使う */
+async function therapistIdsInWeek(monday: string): Promise<Set<string>> {
+  const week = await fetchWeekAvailability(monday, ["female", "male"]);
+  const ids = new Set<string>();
+  for (const byTreatment of Object.values(week)) {
+    for (const byTime of Object.values(byTreatment)) {
+      for (const slot of Object.values(byTime)) ids.add(slot.therapistId);
+    }
+  }
+  return ids;
+}
+
+test("記録があるマッサージ師を無効化すると、空き枠の担当に出なくなる", async () => {
+  const created = await createUserAccount({
+    name: "無効化 施術者",
+    email: emailFor("deactivated-therapist"),
+    role: "therapist",
+    gender: "female",
+  });
+  assert.ok(created.ok);
+  const therapist = await prisma.therapist.findUniqueOrThrow({
+    where: { userId: created.user.id },
+  });
+
+  // 空き枠は 1 時刻につき 1 人しか出ないため、他のマッサージ師を一時的に受付停止にして
+  // 「この人が出るかどうか」だけを見られるようにする
+  const others = await prisma.therapist.findMany({
+    where: { active: true, NOT: { id: therapist.id } },
+  });
+  const otherIds = others.map((t) => t.id);
+  await prisma.therapist.updateMany({ where: { id: { in: otherIds } }, data: { active: false } });
+
+  try {
+    const MONDAY = "2030-01-07";
+    assert.ok(
+      (await therapistIdsInWeek(MONDAY)).has(therapist.id),
+      "無効化する前は担当候補に出ていること",
+    );
+
+    // 記録を作り、削除ではなく無効化に倒す
+    await createReservationFor(created.user.id);
+    const result = await deleteUserAccount("u-admin", created.user.id);
+    assert.equal(result.ok && result.mode, "deactivated");
+
+    assert.equal(
+      (await therapistIdsInWeek(MONDAY)).has(therapist.id),
+      false,
+      "ログインできないアカウントが担当候補に残っていないこと",
+    );
+    // Therapist.active は勤務側の設定なので、アカウントの無効化では触らない
+    const after = await prisma.therapist.findUniqueOrThrow({ where: { id: therapist.id } });
+    assert.equal(after.active, true);
+  } finally {
+    await prisma.therapist.updateMany({ where: { id: { in: otherIds } }, data: { active: true } });
+  }
 });
 
 test("自分自身は削除できない", async () => {

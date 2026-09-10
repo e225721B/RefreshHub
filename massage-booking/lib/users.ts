@@ -174,6 +174,10 @@ export async function deleteUserAccount(
 
   const history = await countUserHistory(userId);
   if (hasHistory(history)) {
+    // 倒すのは User.active だけ。Therapist.active は「今この人の予約を受け付けるか」という
+    // 勤務側の別の設定なので、アカウントの有効・無効で勝手に書き換えない。
+    // 無効化した人が空き枠の担当に出ないことは、空き枠側で user.active も見て担保している
+    // （app/actions/booking.ts の slotsForDate）。同じ状態を 2 か所に持つと必ずずれるため。
     await prisma.user.update({ where: { id: userId }, data: { active: false } });
     return { ok: true, mode: "deactivated", name: user.name };
   }
@@ -191,7 +195,11 @@ export async function deleteUserAccount(
   return { ok: true, mode: "deleted", name: user.name };
 }
 
-/** 無効化したユーザーを元に戻す。削除が「無効化」に切り替わったときの戻し道 */
+/**
+ * 無効化したユーザーを元に戻す。削除が「無効化」に切り替わったときの戻し道。
+ * 戻すのも User.active だけ。マッサージ師の Therapist.active は無効化のときに触っていないので、
+ * 「休止中にしていた人が復帰で勝手に受付中に戻る」ことは起きない。
+ */
 export async function reactivateUserAccount(userId: string): Promise<DeleteUserResult> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return { ok: false, message: "対象のユーザーが見つかりません" };

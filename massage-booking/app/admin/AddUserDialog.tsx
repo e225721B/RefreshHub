@@ -4,7 +4,7 @@
 // 予約状況の画面（/admin）とユーザー管理の画面（/admin/users）の両方に置くため、
 // 画面側ではなくこのコンポーネントにボタンごと持たせている。
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { createUser, type CreateUserState } from "@/app/actions/users";
@@ -126,17 +126,143 @@ function CreatedPanel({
   );
 }
 
-export function AddUserDialog() {
-  const [open, setOpen] = useState(false);
+/** モーダルの中身。useActionState をここに置き、開き直すたびに作り直して結果を捨てる */
+function AddUserForm({ onAddMore, onClose }: { onAddMore: () => void; onClose: () => void }) {
   const [state, formAction] = useActionState<CreateUserState, FormData>(createUser, INITIAL);
   const [role, setRole] = useState<Role>("user");
   const [gender, setGender] = useState("");
-  const formRef = useRef<HTMLFormElement>(null);
 
-  // useActionState の結果は次の送信まで残るため、「もう確認した登録」を覚えておき、
-  // 確認済みなら完了パネルではなく空のフォームを出す（続けて追加できるようにするため）。
-  const [acknowledged, setAcknowledged] = useState<string | null>(null);
-  const created = state.created && state.created.email !== acknowledged ? state.created : null;
+  if (state.created) {
+    return <CreatedPanel created={state.created} onAddMore={onAddMore} onClose={onClose} />;
+  }
+
+  return (
+    <form action={formAction} className="flex flex-col gap-5">
+      <div>
+        <h2
+          id="add-user-title"
+          className="text-xl font-bold tracking-tight text-stone-800 dark:text-stone-50"
+        >
+          ユーザーを追加
+        </h2>
+        <p className="mt-2 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+          メールアドレスとパスワードを登録します。自己登録はできないため、アカウントは管理者がここで作ります。
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="user-name" className={labelClass}>
+          氏名
+        </label>
+        <input
+          id="user-name"
+          name="name"
+          type="text"
+          required
+          autoFocus
+          placeholder="山田 次郎"
+          className={inputClass}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="user-email" className={labelClass}>
+          メールアドレス
+        </label>
+        <input
+          id="user-email"
+          name="email"
+          type="email"
+          required
+          autoComplete="off"
+          placeholder="jiro.yamada@example.com"
+          className={inputClass}
+        />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label htmlFor="user-role" className={labelClass}>
+          権限
+        </label>
+        <select
+          id="user-role"
+          name="role"
+          value={role}
+          onChange={(e) => {
+            const next = e.target.value as Role;
+            setRole(next);
+            // マッサージ師は性別が必須。空のままでは登録できないので既定値を入れる
+            if (next === "therapist" && gender === "") setGender("female");
+          }}
+          className={inputClass}
+        >
+          {ROLES.map((r) => (
+            <option key={r} value={r}>
+              {ROLE_LABEL[r]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 性別はどの権限でも選べる。マッサージ師だけは必須（担当の性別で絞り込むため） */}
+      <div className="flex flex-col gap-2">
+        <label htmlFor="user-gender" className={labelClass}>
+          性別
+          {role !== "therapist" && (
+            <span className="ml-1.5 text-xs font-normal text-stone-400">任意</span>
+          )}
+        </label>
+        <select
+          id="user-gender"
+          name="gender"
+          value={gender}
+          onChange={(e) => setGender(e.target.value)}
+          className={inputClass}
+        >
+          {/* マッサージ師のときは「選ばない」を出さない */}
+          {role !== "therapist" && <option value="">選ばない</option>}
+          {GENDERS.map((g) => (
+            <option key={g} value={g}>
+              {GENDER_LABEL[g]}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {state.error && (
+        <p
+          role="alert"
+          className="rounded-2xl border border-rose-300/60 bg-rose-50/90 px-4 py-3 text-sm text-rose-800 dark:border-rose-400/25 dark:bg-rose-500/10 dark:text-rose-200"
+        >
+          {state.error}
+        </p>
+      )}
+
+      <div className="mt-1 flex justify-end gap-3">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full border border-stone-300 px-5 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 dark:border-white/20 dark:text-stone-200 dark:hover:bg-white/10"
+        >
+          やめる
+        </button>
+        <SubmitButton />
+      </div>
+    </form>
+  );
+}
+
+export function AddUserDialog() {
+  const [open, setOpen] = useState(false);
+  // useActionState の結果（エラー・登録完了）は次の送信まで残るため、状態を消して回るのではなく
+  // key を変えて中身ごと作り直す。閉じて開き直したときに前回のエラーや入力が残らない
+  const [formKey, setFormKey] = useState(0);
+  const reset = () => setFormKey((k) => k + 1);
+
+  function close() {
+    reset();
+    setOpen(false);
+  }
 
   // Esc で閉じられるようにする
   useEffect(() => {
@@ -148,20 +274,6 @@ export function AddUserDialog() {
     return () => window.removeEventListener("keydown", onKey);
     // close() は毎回作り直されるため依存配列を置かない（開いている間だけ登録し直す）
   });
-
-  /** 入力欄を空に戻す */
-  function resetForm() {
-    setAcknowledged(state.created?.email ?? null);
-    setRole("user");
-    setGender("");
-    formRef.current?.reset();
-  }
-
-  /** 閉じるときも次に開いたときのために空に戻す */
-  function close() {
-    resetForm();
-    setOpen(false);
-  }
 
   return (
     <>
@@ -188,122 +300,7 @@ export function AddUserDialog() {
             onClick={(e) => e.stopPropagation()}
             className="my-8 w-full max-w-lg rounded-[1.75rem] border border-white/70 bg-white p-8 text-left shadow-2xl shadow-rose-950/10 dark:border-white/10 dark:bg-stone-900"
           >
-            {created ? (
-              <CreatedPanel created={created} onAddMore={resetForm} onClose={close} />
-            ) : (
-              <form ref={formRef} action={formAction} className="flex flex-col gap-5">
-                <div>
-                  <h2
-                    id="add-user-title"
-                    className="text-xl font-bold tracking-tight text-stone-800 dark:text-stone-50"
-                  >
-                    ユーザーを追加
-                  </h2>
-                  <p className="mt-2 text-sm leading-relaxed text-stone-500 dark:text-stone-400">
-                    メールアドレスとパスワードを登録します。自己登録はできないため、アカウントは管理者がここで作ります。
-                  </p>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="user-name" className={labelClass}>
-                    氏名
-                  </label>
-                  <input
-                    id="user-name"
-                    name="name"
-                    type="text"
-                    required
-                    autoFocus
-                    placeholder="山田 次郎"
-                    className={inputClass}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="user-email" className={labelClass}>
-                    メールアドレス
-                  </label>
-                  <input
-                    id="user-email"
-                    name="email"
-                    type="email"
-                    required
-                    autoComplete="off"
-                    placeholder="jiro.yamada@example.com"
-                    className={inputClass}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="user-role" className={labelClass}>
-                    権限
-                  </label>
-                  <select
-                    id="user-role"
-                    name="role"
-                    value={role}
-                    onChange={(e) => {
-                      const next = e.target.value as Role;
-                      setRole(next);
-                      // マッサージ師は性別が必須。空のままでは登録できないので既定値を入れる
-                      if (next === "therapist" && gender === "") setGender("female");
-                    }}
-                    className={inputClass}
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {ROLE_LABEL[r]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* 性別はどの権限でも選べる。マッサージ師だけは必須（担当の性別で絞り込むため） */}
-                <div className="flex flex-col gap-2">
-                  <label htmlFor="user-gender" className={labelClass}>
-                    性別
-                    {role !== "therapist" && (
-                      <span className="ml-1.5 text-xs font-normal text-stone-400">任意</span>
-                    )}
-                  </label>
-                  <select
-                    id="user-gender"
-                    name="gender"
-                    value={gender}
-                    onChange={(e) => setGender(e.target.value)}
-                    className={inputClass}
-                  >
-                    {/* マッサージ師のときは「選ばない」を出さない */}
-                    {role !== "therapist" && <option value="">選ばない</option>}
-                    {GENDERS.map((g) => (
-                      <option key={g} value={g}>
-                        {GENDER_LABEL[g]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {state.error && (
-                  <p
-                    role="alert"
-                    className="rounded-2xl border border-rose-300/60 bg-rose-50/90 px-4 py-3 text-sm text-rose-800 dark:border-rose-400/25 dark:bg-rose-500/10 dark:text-rose-200"
-                  >
-                    {state.error}
-                  </p>
-                )}
-
-                <div className="mt-1 flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={close}
-                    className="rounded-full border border-stone-300 px-5 py-2.5 text-sm font-medium text-stone-700 transition hover:bg-stone-50 dark:border-white/20 dark:text-stone-200 dark:hover:bg-white/10"
-                  >
-                    やめる
-                  </button>
-                  <SubmitButton />
-                </div>
-              </form>
-            )}
+            <AddUserForm key={formKey} onAddMore={reset} onClose={close} />
           </div>
         </div>
       )}
