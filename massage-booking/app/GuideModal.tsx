@@ -7,17 +7,19 @@ import { useState } from "react";
  * 「15 分から受けられる」ことが共有されておらず、1 時間必須だと思って使わない人がいる、
  * という要件の困りごとに直接対応する。
  */
-export function GuideModal() {
+export function GuideModal({
+  className = "rounded-full border border-rose-200 px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10",
+  label = "利用ガイドを見る",
+}: {
+  className?: string;
+  label?: string;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-full border border-rose-200 px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
-      >
-        利用ガイドを見る
+      <button type="button" onClick={() => setOpen(true)} className={className}>
+        {label}
       </button>
 
       {open && (

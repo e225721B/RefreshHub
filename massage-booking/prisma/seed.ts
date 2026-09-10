@@ -24,11 +24,36 @@ const THERAPIST_USERS = [
   { id: "u-t3", name: "施術者 C", email: "therapist-c@example.com", gender: "male" },
   { id: "u-t4", name: "施術者 D", email: "therapist-d@example.com", gender: "male" },
 ];
+// bio / tags はマッサージ師紹介画面（画面 3）用の紹介文。仮の内容
 const THERAPISTS = [
-  { id: "t1", userId: "u-t1" },
-  { id: "t2", userId: "u-t2" },
-  { id: "t3", userId: "u-t3" },
-  { id: "t4", userId: "u-t4" },
+  {
+    id: "t1",
+    userId: "u-t1",
+    experienceYears: 12,
+    bio: "デスクワークで固まった肩甲骨まわりが得意です。強さは会話しながら合わせるので、初めてでも遠慮なく言ってください。15 分でも首から肩までしっかりほぐします。",
+    tags: "肩・首,やさしめ,初めての方に",
+  },
+  {
+    id: "t2",
+    userId: "u-t2",
+    experienceYears: 8,
+    bio: "腰まわりと脚のむくみが専門。しっかりめの圧が好きな方に選ばれています。長時間座りっぱなしの日は、30 分で腰から下を通してほぐすのがおすすめです。",
+    tags: "腰・脚,しっかりめ,むくみ",
+  },
+  {
+    id: "t3",
+    userId: "u-t3",
+    experienceYears: 15,
+    bio: "頭と目の疲れをとる施術が得意。画面を見続けた日の 15 分に向いています。終わったあと視界が明るくなった、という声をよくもらいます。",
+    tags: "頭・眼精疲労,15 分向き,静かめ",
+  },
+  {
+    id: "t4",
+    userId: "u-t4",
+    experienceYears: 6,
+    bio: "ストレッチを組み合わせた施術で、可動域を広げるのが得意です。運動不足が気になる方、身体を動かしたあとのケアをしたい方に。",
+    tags: "ストレッチ,全身,45 分向き",
+  },
 ];
 
 // 動作確認用の利用者
