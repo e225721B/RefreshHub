@@ -428,6 +428,9 @@ flowchart TD
 **さらに `Shift`（日付ごとの手入力シフト）を廃止し、`Therapist` に基本の勤務パターン（曜日・午前午後の時間帯）を持たせた上で、
 例外だけを `TherapistAbsence`（休む日時）に記録する形へ変更した**（詳細は後述の「設計上の判断」）。
 
+**実装中の変更（2026-09-09）**: 性別を `Therapist.gender` から **`User.gender` へ移した**（マイグレーション
+`prisma/migrations/20260909090000_move_gender_to_user`）。下の図と `prisma/schema.prisma` は現在の実装と一致している。
+
 図の正本は `diagrams/er-v2.mmd`。再生成方法はこのファイルの末尾。
 
 ![ER 図（第 2 版）](diagrams/er-v2.png)
@@ -449,12 +452,12 @@ erDiagram
     string email "ログイン ID"
     string password "初期値は管理者が設定して本人に渡す"
     string role "user / therapist / admin"
+    string gender "male / female（任意。マッサージ師だけ必須）"
     boolean active "無効化に使う"
   }
   THERAPIST {
     string id "t1..."
-    string userId "USER.id（必須。表示名は User.name を使うので name は持たない）"
-    string gender "male / female"
+    string userId "USER.id（必須。表示名と性別は User 側を使うので持たない）"
     boolean active "退職・休職に使う"
   }
   BED {
@@ -487,8 +490,10 @@ erDiagram
     datetime endAt "施術 + 15 分の枠終了日時"
     string status "booked / cancelled"
     string note "備考（任意）"
+    datetime createdAt "予約した日時"
     string cancelledById "USER.id（誰が取り消したか）"
     string cancelReason "取り消しの理由"
+    datetime cancelledAt "取り消した日時"
   }
   NOTIFICATION {
     string id "n1..."
@@ -507,7 +512,8 @@ erDiagram
 
 | 判断 | 内容 | 理由 |
 |---|---|---|
-| **Therapist を User に統合しない（ただし `userId` は必須）** | User を新設し、Therapist は `userId` で紐づける。**すべてのマッサージ師がログインする（AC-16）ため、この紐づけは必須**とし、`Therapist.name` は持たない | 統合すると既存の `lib/slots.ts` と `app/actions.ts` を全面的に書き換えることになり、**3 人の並行作業の起点で大きな衝突が起きる**。分けておけば空き枠計算のコードはほぼそのまま使える。表示名は `User.name` に一本化し、**同じ情報を 2 か所に持たない** |
+| **Therapist を User に統合しない（ただし `userId` は必須）** | User を新設し、Therapist は `userId` で紐づける。**すべてのマッサージ師がログインする（AC-16）ため、この紐づけは必須**とし、`Therapist.name` は持たない | 統合すると既存の `lib/slots.ts` と `app/actions.ts` を全面的に書き換えることになり、**3 人の並行作業の起点で大きな衝突が起きる**。分けておけば空き枠計算のコードはほぼそのまま使える。表示名は `User.name`、性別は `User.gender` に一本化し、**同じ情報を 2 か所に持たない** |
+| **性別は `User` が持つ（`Therapist` には持たせない）** | `User.gender`（任意）に置く。**マッサージ師だけは登録時に必須**（利用者が担当の性別で空き枠を絞り込むため）。利用者・管理者は未設定のままでよく、未設定の人は性別での絞り込みには出てこない | 当初は `Therapist.gender` に置いていたが、**利用者・管理者にも性別を登録したい**という要望が出た（2026-09-09）。両方に列を作ると同じ情報が 2 か所に分かれるため、`User` 側へ移した（表示名を `User.name` に一本化したのと同じ考え方）。既存データは `20260909090000_move_gender_to_user` で移行済み |
 | **Reservation は物理削除しない** | `status` を `cancelled` にする | **キャンセルも利用実績のデータ**。「予約したが直前に取り消す人が多い」なども AC-6 / AC-7 で見えるようにするため |
 | **`active` フラグを持つ** | Bed / Therapist / User | ベッドを減らす・マッサージ師が辞めるときに**過去の予約が壊れない**。削除すると実績が消える |
 | **Notification は予約時にまとめて作る** | 確定通知は `sentAt` 即時、15 分前通知は `scheduledAt` のみ入れて未送信で置く | D-2。実送信しないので「送信予定の一覧」が見えれば設計の妥当性は示せる |
@@ -594,7 +600,8 @@ Git はブランチを分ける（例 `feat/auth` `feat/booking` `feat/admin`）
 
 > **必須の受け入れ基準 14 件（AC-1〜AC-13 と AC-15〜AC-17。AC-14 のみ対象外）を、
 > Next.js（App Router）+ TypeScript + SQLite + Prisma で作る。**
-> 画面は **9 枚 + モーダル 2 つ**、データは **User / Therapist / Bed / Shift / Reservation / Notification の 6 テーブル**。
+> 画面は **9 枚 + モーダル 2 つ**、データは **User / Therapist / TherapistWorkHours / TherapistAbsence / Bed / Reservation / Notification の 7 テーブル**
+> （`Shift` は廃止し、基本の勤務パターンは `lib/business-hours.ts` の定数、例外だけを `TherapistWorkHours` / `TherapistAbsence` に持つ）。
 > ログインはメールアドレス + パスワードで、**自己登録は作らず管理者がアカウントを登録する**（D-1）、
 > 通知は実送信せず記録と画面表示で示す（D-2）、
 > キャンセルは利用者が 2 時間前まで・管理者はいつでも可（D-3）、
