@@ -1,8 +1,9 @@
 "use client";
 
 // 一覧 1 行ぶんの操作（削除 / 有効に戻す）。
-// 削除は取り消せないので、必ず確認のダイアログを挟み、
-// 「完全に消える」のか「無効になるだけ」なのかを押す前に見せる。
+//
+// 削除は**論理削除**（User.active を false にするだけ）。行は消えないので取り消せるが、
+// 押した人が「消えた」と誤解しないよう、確認のダイアログで何が起きるかを先に見せる。
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
@@ -29,10 +30,6 @@ export function UserActions({ user }: { user: UserRow }) {
   const [deleteState, deleteAction] = useActionState(deleteUser, INITIAL);
   const [reactivateState, reactivateAction] = useActionState(reactivateUser, INITIAL);
 
-  // 記録が 1 件も無ければ完全に消える。判定はサーバ側（lib/users.ts）と同じ条件で、
-  // 「押す前に何が起きるか」を見せるためだけに使う
-  const willDelete =
-    user.history.reservations + user.history.assignments + user.history.others === 0;
   const result = deleteState.error ?? deleteState.message ?? reactivateState.error ?? reactivateState.message;
   const isError = Boolean(deleteState.error || reactivateState.error);
 
@@ -49,17 +46,19 @@ export function UserActions({ user }: { user: UserRow }) {
           </form>
         )}
 
-        {user.canDelete ? (
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="rounded-full border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
-          >
-            削除
-          </button>
-        ) : (
-          <span className="text-xs text-black/40 dark:text-white/40">削除できません</span>
-        )}
+        {/* 削除済み（active = false）の人には出さない。押しても「すでに削除されています」で断られるだけ */}
+        {user.active &&
+          (user.canDelete ? (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="rounded-full border border-rose-300 px-3 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 dark:border-rose-400/40 dark:text-rose-300 dark:hover:bg-rose-500/10"
+            >
+              削除
+            </button>
+          ) : (
+            <span className="text-xs text-black/40 dark:text-white/40">削除できません</span>
+          ))}
       </div>
 
       {result && (
@@ -88,29 +87,20 @@ export function UserActions({ user }: { user: UserRow }) {
               {user.email}
             </p>
 
-            {willDelete ? (
-              <p className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm leading-relaxed text-rose-900 dark:bg-rose-500/10 dark:text-rose-200">
-                予約などの記録が 1 件も無いため、
-                <strong>アカウントを完全に削除します。元に戻せません。</strong>
+            <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
+              <p>
+                <strong>ログインできなくなり、空き枠の担当にも出なくなります。</strong>
+                アカウントは一覧に残り、過去の予約と集計もそのままです
+                （誰が使ったかを後から追えるようにするため）。あとから有効に戻せます。
               </p>
-            ) : (
-              <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
-                <p>
-                  このユーザーには
-                  <strong>
-                    {user.history.reservations > 0 && ` 予約 ${user.history.reservations} 件`}
-                    {user.history.assignments > 0 && ` 担当 ${user.history.assignments} 件`}
-                    {user.history.others > 0 && ` その他の記録 ${user.history.others} 件`}
-                  </strong>
-                  があります。
-                </p>
+              {user.usageCount > 0 && (
                 <p className="mt-1">
-                  消すと過去の予約と集計が壊れるため、
-                  <strong>削除せず「無効」にします</strong>
-                  （ログインできなくなります）。あとから有効に戻せます。
+                  このユーザーには
+                  <strong> 利用 {user.usageCount} 回</strong>
+                  の記録があります。
                 </p>
-              </div>
-            )}
+              )}
+            </div>
 
             <form
               action={deleteAction}
@@ -126,7 +116,7 @@ export function UserActions({ user }: { user: UserRow }) {
                 やめる
               </button>
               <SubmitButton
-                label={willDelete ? "完全に削除する" : "無効にする"}
+                label="削除する"
                 className="rounded-full bg-rose-600 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-rose-600/25 transition hover:bg-rose-700"
               />
             </form>

@@ -3,6 +3,14 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* 集計画面（/admin/stats）のグラフの色。
+     2 系列は「色が見分けられなくても読める」ことを確認した組み合わせを使う
+     （色覚特性のある人でも隣り合う棒が分離する。凡例と数値も必ず併記する）。 */
+  --chart-1: #eb6834; /* 予約数 */
+  --chart-2: #2a78d6; /* ユニーク利用者数 */
+  --chart-grid: rgba(0, 0, 0, 0.1);
+  --chart-track: rgba(0, 0, 0, 0.05);
 }
 
 @theme inline {
@@ -28,6 +36,12 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    /* 暗い背景では同じ色相のまま明るさを取り直す（明暗を反転させるだけでは沈む） */
+    --chart-1: #d95926;
+    --chart-2: #3987e5;
+    --chart-grid: rgba(255, 255, 255, 0.14);
+    --chart-track: rgba(255, 255, 255, 0.08);
   }
 }
 
