@@ -11,7 +11,7 @@
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../lib/password";
 import { DEFAULT_WORK_WINDOWS, timeOfDay } from "../lib/business-hours";
-import { toDateString } from "../lib/dates";
+import { mondayOf, toDateString } from "../lib/dates";
 import { CLEANUP_MIN, STEP_MIN, toMinutes } from "../lib/slots";
 
 const prisma = new PrismaClient();
@@ -38,19 +38,15 @@ const THERAPISTS = [
 
 // 動作確認用の利用者。
 // u1〜u3 は既存のテスト（lib/*.test.ts）が ID とメールアドレスを直接使っているので変えない。
-// 集計画面で「ユニーク利用者数」「利用者別の一覧」が意味を持つよう、人数を増やしてある。
-const REGULAR_USERS = [
-  { id: "u1", name: "利用者 一郎", email: "user1@example.com", gender: "male" },
-  { id: "u2", name: "利用者 二郎", email: "user2@example.com", gender: "male" },
-  { id: "u3", name: "利用者 三郎", email: "user3@example.com", gender: "female" },
-  { id: "u4", name: "利用者 四郎", email: "user4@example.com", gender: "male" },
-  { id: "u5", name: "利用者 五月", email: "user5@example.com", gender: "female" },
-  { id: "u6", name: "利用者 六実", email: "user6@example.com", gender: "female" },
-  { id: "u7", name: "利用者 七海", email: "user7@example.com", gender: "female" },
-  { id: "u8", name: "利用者 八郎", email: "user8@example.com", gender: "male" },
-  { id: "u9", name: "利用者 九美", email: "user9@example.com", gender: "female" },
-  { id: "u10", name: "利用者 十郎", email: "user10@example.com", gender: "male" },
-];
+// 福利厚生のルールで 1 人が使えるのは週 1 回までなので、10 人では 1 週間に最大 10 件しか
+// 予約が立たず、ベッド 3 台の部屋としては現実離れする。集計画面が意味を持つ規模にするため
+// 24 人にしてある。名前は施術者と同じく「利用者 A」形式の仮名。
+const REGULAR_USERS = Array.from({ length: 24 }, (_, i) => ({
+  id: `u${i + 1}`,
+  name: `利用者 ${"ABCDEFGHIJKLMNOPQRSTUVWX"[i]}`,
+  email: `user${i + 1}@example.com`,
+  gender: i % 2 === 0 ? "male" : "female",
+}));
 
 // 要件では扉 1 つ・ベッド 3 台。R-1（午前は施術者 4 名だがベッド 3 台）は未確認のため、
 // 台数はここを増やすだけで変えられるようにしている。
@@ -66,8 +62,8 @@ const BEDS = [
 const HISTORY_DAYS = 90;
 
 /** 1 日あたりの予約件数の範囲 */
-const PER_DAY_MIN = 2;
-const PER_DAY_MAX = 9;
+const PER_DAY_MIN = 3;
+const PER_DAY_MAX = 8;
 
 /** 動作確認のため「午前のみ」（月〜金 9:00〜14:00）で登録するセラピスト */
 const AM_ONLY_THERAPIST_ID = "t2";
@@ -132,10 +128,14 @@ function planReservations(): PlannedReservation[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // よく使う人・たまに使う人の差を作る（利用者別の一覧に意味を持たせるため）
+  // よく使う人・たまに使う人の差を作る（利用者別の一覧に意味を持たせるため）。
+  // 週 1 回までのルールがあるので、差は「何週つづけて使うか」として出る
   const userPool = REGULAR_USERS.flatMap((u, i) =>
-    Array.from({ length: i < 3 ? 4 : i < 6 ? 2 : 1 }, () => u.id),
+    Array.from({ length: i < 6 ? 4 : i < 14 ? 2 : 1 }, () => u.id),
   );
+
+  // 「その人がその週にもう予約したか」の目印。週の区切りは月曜はじまり（lib/dates の mondayOf）
+  const usedThisWeek = new Set<string>();
 
   for (let daysAgo = HISTORY_DAYS; daysAgo >= 1; daysAgo--) {
     const day = new Date(today);
@@ -143,6 +143,7 @@ function planReservations(): PlannedReservation[] {
     const dow = day.getDay();
     if (dow === 0 || dow === 6) continue; // 土日は稼働しない
 
+    const weekKey = mondayOf(toDateString(day));
     // 「その日の 15 分枠が誰／どのベッドで埋まっているか」の目印
     const taken = new Set<string>();
     const target = randomInt(PER_DAY_MIN, PER_DAY_MAX);
@@ -150,6 +151,9 @@ function planReservations(): PlannedReservation[] {
 
     for (let attempt = 0; attempt < target * 6 && placed < target; attempt++) {
       const userId = pick(userPool);
+      // 福利厚生のルール: 1 人が使えるのは週 1 回まで。同じ週に 2 件目は作らない
+      if (usedThisWeek.has(`${userId}@${weekKey}`)) continue;
+
       const therapistId = pick(THERAPISTS).id;
       const bedId = pick(BEDS).id;
       const treatmentMin = pick(TREATMENT_OPTIONS);
@@ -165,6 +169,7 @@ function planReservations(): PlannedReservation[] {
       }
       if (keys.some((k) => taken.has(k))) continue;
       for (const k of keys) taken.add(k);
+      usedThisWeek.add(`${userId}@${weekKey}`);
 
       const startAt = new Date(day);
       startAt.setHours(Math.floor(startMin / 60), startMin % 60, 0, 0);
@@ -254,11 +259,21 @@ async function main() {
   );
   console.log(`全アカウント共通パスワード: ${SEED_PASSWORD}`);
   console.log(`セラピスト ${AM_ONLY_THERAPIST_ID} は月〜金 9:00〜14:00 の「午前のみ」で登録済み`);
+  // 「週 1 回まで」を破っていないことを、投入したデータ自身で確かめる
+  const perWeek = new Map<string, number>();
+  for (const r of reservations) {
+    const key = `${r.userId}@${mondayOf(toDateString(r.startAt))}`;
+    perWeek.set(key, (perWeek.get(key) ?? 0) + 1);
+  }
+  const worst = Math.max(0, ...perWeek.values());
+
   console.log(
     `サンプル予約 ${reservations.length} 件（${oldest}〜${newest}）: ` +
       `利用 ${booked.length} 件 / キャンセル ${reservations.length - booked.length} 件 / ` +
       `ユニーク利用者 ${uniqueUsers} 人`,
   );
+  console.log(`1 人あたりの週の最大予約数: ${worst} 件（福利厚生のルールは週 1 回まで）`);
+  if (worst > 1) throw new Error("週 1 回までのルールを破るサンプルデータが作られました");
 }
 
 main()

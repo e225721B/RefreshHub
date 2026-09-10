@@ -8,7 +8,8 @@
 //
 // サーバーコンポーネント（データを受け取って描くだけで、状態を持たない）。
 
-import type { PeriodPoint } from "@/lib/stats";
+import type { Granularity, PeriodPoint } from "@/lib/stats";
+import { GRANULARITY_LABEL } from "@/lib/stats";
 
 /** 棒の高さの割合（%）。最大値が 0 のときは 0 にして、0 除算を避ける */
 function ratio(value: number, max: number): number {
@@ -23,26 +24,49 @@ function niceMax(max: number): number {
 }
 
 /**
- * 期間別の棒グラフ。1 区切りにつき「予約数」「ユニーク利用者数」の 2 本を並べる。
+ * 期間別の棒グラフ。
  *
- * 2 本を並べるのは、この 2 つがずれることに意味があるから。
+ * **ユニーク利用者数の棒は「月別」のときだけ出す。**
+ * 福利厚生のルールで 1 人が使えるのは週 1 回までなので、
+ * **日別・週別ではユニーク利用者数が必ず予約数と同じ値になり、同じ棒を 2 本描くことになる**。
+ * 月別だけは同じ人が月に何度も使えるため、2 本のずれに意味が出る:
  * 予約数だけが伸びていれば「同じ人が何度も使っている」、
  * 2 本が一緒に伸びていれば「使う人そのものが増えている」と読める
  * （要件の「リピーターは二の次。いろんな人に使ってもらいたい」に直接答える）。
  */
-export function PeriodChart({ points }: { points: PeriodPoint[] }) {
-  const max = niceMax(Math.max(0, ...points.map((p) => Math.max(p.reservations, p.uniqueUsers))));
+export function PeriodChart({
+  points,
+  granularity,
+}: {
+  points: PeriodPoint[];
+  granularity: Granularity;
+}) {
+  const showUniqueUsers = granularity === "month";
+  const max = niceMax(
+    Math.max(0, ...points.map((p) => (showUniqueUsers ? Math.max(p.reservations, p.uniqueUsers) : p.reservations))),
+  );
   // 棒が多いときは、下のラベルを間引いて重ならないようにする
   const labelStep = Math.ceil(points.length / 12);
 
   return (
     <div>
-      <Legend
-        items={[
-          { color: "var(--chart-1)", label: "予約数" },
-          { color: "var(--chart-2)", label: "ユニーク利用者数" },
-        ]}
-      />
+      {/* 何で区切っているかは、棒を何本出すかと「2 本目を出すかどうか」を決めるので必ず見せる */}
+      <div className="mb-1 flex flex-wrap items-center gap-4 text-xs text-black/60 dark:text-white/60">
+        <span className="font-medium text-black/70 dark:text-white/70">
+          {GRANULARITY_LABEL[granularity]}
+        </span>
+        {showUniqueUsers ? (
+          <>
+            <LegendItem color="var(--chart-1)" label="予約数" />
+            <LegendItem color="var(--chart-2)" label="ユニーク利用者数" />
+          </>
+        ) : (
+          <span>
+            予約数（週 1 回までのルールがあるため、{GRANULARITY_LABEL[granularity]}
+            ではユニーク利用者数は予約数と同じ値になります）
+          </span>
+        )}
+      </div>
 
       <div className="overflow-x-auto pt-12">
         <div className="min-w-[480px]">
@@ -70,19 +94,22 @@ export function PeriodChart({ points }: { points: PeriodPoint[] }) {
                 <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-stone-800 px-2.5 py-1.5 text-[11px] leading-tight text-white shadow-lg group-hover:block dark:bg-stone-700">
                   <div className="font-semibold">{p.label}</div>
                   <div className="tabular-nums">予約 {p.reservations} 件</div>
-                  <div className="tabular-nums">利用者 {p.uniqueUsers} 人</div>
+                  {showUniqueUsers && <div className="tabular-nums">利用者 {p.uniqueUsers} 人</div>}
                 </div>
 
                 <Bar
                   heightPercent={ratio(p.reservations, max)}
                   color="var(--chart-1)"
                   title={`${p.label} 予約 ${p.reservations} 件`}
+                  wide={!showUniqueUsers}
                 />
-                <Bar
-                  heightPercent={ratio(p.uniqueUsers, max)}
-                  color="var(--chart-2)"
-                  title={`${p.label} 利用者 ${p.uniqueUsers} 人`}
-                />
+                {showUniqueUsers && (
+                  <Bar
+                    heightPercent={ratio(p.uniqueUsers, max)}
+                    color="var(--chart-2)"
+                    title={`${p.label} 利用者 ${p.uniqueUsers} 人`}
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -109,7 +136,7 @@ export function PeriodChart({ points }: { points: PeriodPoint[] }) {
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr>
-                {["期間", "予約数", "ユニーク利用者数"].map((label) => (
+                {(showUniqueUsers ? ["期間", "予約数", "ユニーク利用者数"] : ["期間", "予約数"]).map((label) => (
                   <th
                     key={label}
                     className="border border-black/10 px-3 py-2 text-left font-medium dark:border-white/15"
@@ -128,9 +155,11 @@ export function PeriodChart({ points }: { points: PeriodPoint[] }) {
                   <td className="border border-black/10 px-3 py-1.5 tabular-nums dark:border-white/15">
                     {p.reservations}
                   </td>
-                  <td className="border border-black/10 px-3 py-1.5 tabular-nums dark:border-white/15">
-                    {p.uniqueUsers}
-                  </td>
+                  {showUniqueUsers && (
+                    <td className="border border-black/10 px-3 py-1.5 tabular-nums dark:border-white/15">
+                      {p.uniqueUsers}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -145,15 +174,18 @@ function Bar({
   heightPercent,
   color,
   title,
+  wide,
 }: {
   heightPercent: number;
   color: string;
   title: string;
+  /** 1 系列だけのときは、2 本並べるぶんの幅を 1 本で使う */
+  wide?: boolean;
 }) {
   return (
     <div
       title={title}
-      className="w-full max-w-3 rounded-t"
+      className={`w-full rounded-t ${wide ? "max-w-5" : "max-w-3"}`}
       style={{
         // 0 件でも 1px だけ残す。棒が消えると「データが無い」のか「0 件」なのか区別できない
         height: `max(${heightPercent}%, 1px)`,
@@ -163,19 +195,12 @@ function Bar({
   );
 }
 
-function Legend({ items }: { items: { color: string; label: string }[] }) {
+function LegendItem({ color, label }: { color: string; label: string }) {
   return (
-    <div className="mb-1 flex flex-wrap items-center gap-4 text-xs text-black/60 dark:text-white/60">
-      {items.map((item) => (
-        <span key={item.label} className="flex items-center gap-1.5">
-          <span
-            className="inline-block h-2.5 w-2.5 rounded-sm"
-            style={{ backgroundColor: item.color }}
-          />
-          {item.label}
-        </span>
-      ))}
-    </div>
+    <span className="flex items-center gap-1.5">
+      <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: color }} />
+      {label}
+    </span>
   );
 }
 
