@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { hhmmOfLocal, isStartPassed, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
+import { hhmmOfLocal, isStartPassed, mondayOf, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
   STEP_MIN,
@@ -17,6 +17,8 @@ import {
 import { canUserCancel, USER_CANCEL_CUTOFF_HOURS } from "@/lib/cancellation";
 import { AuthError, requireLogin, requireRole } from "@/lib/auth";
 import { SELECTABLE_THERAPIST_WHERE } from "@/lib/therapists";
+import { sendSlackDM } from "@/lib/slack";
+import { cancelledMessageForTherapist, reservedMessageForTherapist } from "@/lib/notification-messages";
 
 /** 入力値の検証。フォームは誰でも直接呼べるため、サーバ側で必ず確かめる。 */
 function isValidDate(date: string): boolean {
@@ -42,6 +44,14 @@ function dayRange(date: string): { start: Date; end: Date } {
   const start = toDateTime(date, "00:00");
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
+  return { start, end };
+}
+
+/** その日が含まれる週の月曜 00:00 〜 翌週月曜 00:00（ローカル時刻） */
+function weekRange(date: string): { start: Date; end: Date } {
+  const start = toDateTime(mondayOf(date), "00:00");
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
   return { start, end };
 }
 
@@ -130,6 +140,40 @@ export async function fetchWeekAvailability(
   }
 
   return result;
+}
+
+export type WeekBooking = {
+  date: string;
+  startTime: string;
+  endTime: string;
+};
+
+/**
+ * ログイン中の利用者が、指定した週（月曜始まり）にすでに持っている `booked` の予約（AC-19）。
+ * 週表示側で「この週は選べない」という出し分けと、その時間帯のハイライトに使う。
+ * キャンセル済みは対象外。週1回までのため、あっても常に1件。
+ */
+export async function getBookedReservationInWeek(mondayStr: string): Promise<WeekBooking | null> {
+  let user;
+  try {
+    user = await requireLogin();
+  } catch (e) {
+    if (e instanceof AuthError) return null;
+    throw e;
+  }
+
+  if (!isValidDate(mondayStr)) return null;
+  const { start, end } = weekRange(mondayStr);
+  const existing = await prisma.reservation.findFirst({
+    where: { userId: user.id, status: "booked", startAt: { gte: start, lt: end } },
+  });
+  if (!existing) return null;
+
+  return {
+    date: toDateString(existing.startAt),
+    startTime: hhmmOfLocal(existing.startAt),
+    endTime: hhmmOfLocal(existing.endAt),
+  };
 }
 
 export type QuickSlotResult =
@@ -267,6 +311,15 @@ export async function createReservation(input: {
     return { ok: false, message: "過ぎた時間は予約できません。表を更新します" };
   }
 
+  // 週1回まで（AC-19）。キャンセル済みはカウントしない
+  const { start: weekStart, end: weekEnd } = weekRange(input.date);
+  const alreadyBookedThisWeek = await prisma.reservation.findFirst({
+    where: { userId: user.id, status: "booked", startAt: { gte: weekStart, lt: weekEnd } },
+  });
+  if (alreadyBookedThisWeek) {
+    return { ok: false, message: "同じ週にすでに予約があります。1週間に1回までです" };
+  }
+
   const blockEndTime = toHHMM(toMinutes(input.startTime) + input.treatmentMin + CLEANUP_MIN);
 
   // 一覧を見てから予約するまでの間に、他の人が同じ枠を取っている可能性がある。
@@ -295,7 +348,7 @@ export async function createReservation(input: {
 
   const note = input.note?.trim().slice(0, 50) || null;
 
-  await prisma.reservation.create({
+  const created = await prisma.reservation.create({
     data: {
       userId: user.id,
       bedId: input.bedId,
@@ -305,7 +358,20 @@ export async function createReservation(input: {
       endAt: toDateTime(input.date, blockEndTime),
       note,
     },
+    include: { therapist: { include: { user: true } }, bed: true },
   });
+
+  await sendSlackDM(
+    created.therapist.user.email,
+    reservedMessageForTherapist({
+      date: input.date,
+      startTime: input.startTime,
+      endTime: blockEndTime,
+      treatmentMin: input.treatmentMin,
+      bedName: created.bed.name,
+      userName: user.name,
+    }),
+  );
 
   revalidatePath("/");
   revalidatePath("/admin");
@@ -392,7 +458,10 @@ export async function cancelReservation(reservationId: string): Promise<CancelRe
     throw e;
   }
 
-  const reservation = await prisma.reservation.findUnique({ where: { id: reservationId } });
+  const reservation = await prisma.reservation.findUnique({
+    where: { id: reservationId },
+    include: { therapist: { include: { user: true } }, bed: true },
+  });
   if (!reservation) return { ok: false, message: "予約が見つかりません" };
   if (reservation.userId !== user.id) {
     return { ok: false, message: "この予約をキャンセルする権限がありません" };
@@ -411,6 +480,18 @@ export async function cancelReservation(reservationId: string): Promise<CancelRe
     where: { id: reservationId },
     data: { status: "cancelled", cancelledById: user.id, cancelledAt: new Date() },
   });
+
+  await sendSlackDM(
+    reservation.therapist.user.email,
+    cancelledMessageForTherapist({
+      date: toDateString(reservation.startAt),
+      startTime: hhmmOfLocal(reservation.startAt),
+      endTime: hhmmOfLocal(reservation.endAt),
+      treatmentMin: reservation.treatmentMin,
+      bedName: reservation.bed.name,
+      userName: user.name,
+    }),
+  );
 
   revalidatePath("/");
   revalidatePath("/admin");

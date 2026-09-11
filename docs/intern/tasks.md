@@ -1249,3 +1249,125 @@ $ npx tsc --noEmit   → エラー 0
 $ npm run build      → ✓（/admin, /admin/stats, /admin/users, /therapist ほか）
 $ npm run lint       → 上記 1 件のみ（マージ由来）
 ```
+## 2026-09-10: マッサージ師への Slack DM 通知（AC-11 改訂 / AC-18）
+
+要件・設計の変更は `requirements.md`（2026-09-10 の変更）・`design.md`（D-2 の改訂）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/lib/slack.ts`（新規） | `notifyTherapistViaSlack(email, text)`。`users.lookupByEmail` で Slack User ID を引き、`chat.postMessage` で DM を送る。**失敗しても例外を投げず、ログに残すだけ**（送信失敗時も予約自体は成立させる、という決定どおり） |
+| `massage-booking/app/actions/booking.ts` | `createReservation`（予約確定）・`cancelReservation`（キャンセル）の成功後に `notifyTherapistViaSlack` を呼び出す。担当マッサージ師のメールアドレスは `Reservation.therapist.user.email` から取得 |
+
+`Notification` テーブルへの記録は行わない（疑似送信をやめて実送信に置き換える、という決定のため）。
+
+### 確認したこと
+
+- Slack Bot（`RefreshHub-notification`）の Bot Token で、開発者本人の Slack DM に実際にメッセージが届くことを確認済み（`chat:write` スコープで疎通確認）
+- `npx tsc --noEmit` / `npx eslint app/actions/booking.ts lib/slack.ts`: エラー 0
+- `npx tsx --test lib/*.test.ts`: **56 件すべて pass**（既存テストへの影響なし）
+- ブラウザから実際に予約→キャンセルを行い、サーバーログで両方のタイミングで通知処理が呼ばれることを確認。
+  `SLACK_BOT_TOKEN` 未設定の開発環境では `[slack] SLACK_BOT_TOKEN が未設定のため通知をスキップしました` とログに出るだけで、
+  **予約・キャンセル自体は正常に成立する**ことを確認（送信失敗時の決定どおり）
+
+### 残っていること（学生が確認すること）
+
+`massage-booking/.env` に実際の `SLACK_BOT_TOKEN` を設定した状態で、実際に予約→キャンセルを行い、
+**自分の Slack に「予約が入りました」「予約がキャンセルされました」の DM が届くか**を確認する
+（テスト対象は開発中の合意どおり中山さん本人のみ。他の施術者役アカウント宛には送らない）。
+
+## 2026-09-10（続き）: 15分前リマインド（AC-12）と通知メッセージのリニューアル
+
+要件・設計の変更は `requirements.md`（AC-12 の変更）・`design.md`（D-2 の再改訂）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/prisma/schema.prisma` | `Reservation.reminderSentAt`（nullable）を追加。リマインド送信済みかどうかの二重送信防止だけに使う |
+| `massage-booking/lib/notification-messages.ts`（新規） | 確定・キャンセル・リマインド（施術者向け／利用者向け）の Slack メッセージ文面を集約。中山さん共有の社内Botメッセージ例を参考に、絵文字とボットの名乗りを入れたトーンに統一 |
+| `massage-booking/lib/slack.ts` | `notifyTherapistViaSlack` を汎用の `sendSlackDM(email, text)` に変更（利用者にも使うため） |
+| `massage-booking/lib/reminders.ts`（新規） | `sendUpcomingReminders()`。「まだ知らせていない・15分以内に始まる予約」を検索し、施術者・利用者の双方に Slack DM を送って `reminderSentAt` を記録する |
+| `massage-booking/app/api/cron/remind/route.ts`（新規） | `GET /api/cron/remind`。`Authorization: Bearer <CRON_SECRET>` が一致したときだけ `sendUpcomingReminders()` を実行する。`CRON_SECRET` 未設定時は常に拒否（フェイルクローズ） |
+| `massage-booking/app/actions/booking.ts` | 確定・キャンセルの通知文面を `lib/notification-messages.ts` の関数呼び出しに置き換え |
+
+利用者向けリマインドのキャンセル導線は `${APP_BASE_URL}/#my-reservations`（「自分の予約」セクションへのリンク）。
+リンクを踏んだだけでキャンセルされることはなく、既存のキャンセル確認モーダルに誘導するだけ。
+
+### 確認したこと
+
+- `npx tsc --noEmit` / `npx eslint`: エラー 0（既存の無関係な `LayoutProps` エラーを除く）
+- `npx tsx --test lib/*.test.ts`: 56件すべて pass
+  - 確認の過程で `therapist-a@example.com` が無効化されている（開発DBの状態のずれ、原因不明）ことに気づき、`reactivateUserAccount` で再有効化してテストを通した
+- `sendUpcomingReminders()` を直接実行し、15分以内に始まる仮の予約を1件検出→通知処理を呼び出し→`reminderSentAt` が記録されることを確認
+  - この確認で **Prisma がクエリ実行時に `.env` を丸ごと読み込む副作用**により、意図せず実際の `SLACK_BOT_TOKEN` を使って Slack へ問い合わせが飛んだ（結果は `invalid_auth`）。中山さんに報告済み
+
+### `invalid_auth` の原因判明・解消（2026-09-10 追記）
+
+原因は、Claude が `.env` に `CRON_SECRET` を追記した際に**改行を入れずに追記してしまい、`SLACK_BOT_TOKEN` の行と
+くっついていた**こと。3行に分けて修正し、dev サーバー再起動後に解消した。実際に予約確定・キャンセルの Slack DM が
+中山さん本人に届くことを確認済み。
+
+## 2026-09-10（続き2）: AC-12 を「毎朝9時の一括通知」に変更（デプロイ先が Vercel 無料プランに決定）
+
+要件・設計の変更は `requirements.md`・`design.md`（D-2 の三度目の改訂）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/lib/reminders.ts` | `sendUpcomingReminders`（15分前判定）を `sendDailyDigest` に置き換え。当日の未通知予約を利用者ごと・マッサージ師ごとにグループ化し、それぞれ1通ずつ送る |
+| `massage-booking/lib/notification-messages.ts` | `reminderMessageForUser` / `reminderMessageForTherapist`（1件ごと）を `dailyDigestMessageForUser` / `dailyDigestMessageForTherapist`（複数件をまとめて箇条書き）に置き換え |
+| `massage-booking/app/api/cron/remind/route.ts` | `sendDailyDigest` を呼ぶように変更（認可の仕組みは変更なし） |
+| `massage-booking/vercel.json`（新規） | Vercel Cron の設定。`schedule: "0 0 * * *"`（UTC 0:00 = JST 9:00）で `/api/cron/remind` を1日1回叩く |
+
+### 確認したこと
+
+- `npx tsc --noEmit` / `npx eslint`: エラー 0
+- テスト用の予約を作って `sendDailyDigest()` を直接実行し、当日の未通知予約が利用者・マッサージ師ごとに正しくグループ化されることを確認（`SLACK_BOT_TOKEN` は確認のため空にして実行し、実際の送信はしていない）
+  - この確認の過程で、中山さんが以前作った未削除のテスト予約2件も巻き込んで `reminderSentAt` を立ててしまったため、それらは元の未送信状態に戻した（自分のテスト分だけ削除）
+
+### 残っていること（学生が確認すること）
+
+1. Vercel にデプロイする際、プロジェクトの環境変数に `SLACK_BOT_TOKEN` と `CRON_SECRET` を設定する（Vercel の Cron は `CRON_SECRET` を設定するだけで `Authorization` ヘッダーを自動で付けてくれる）
+2. ローカルでも毎朝9時に自動実行されるよう、crontab への登録を予定（別途相談して設定する）
+3. `curl -H "Authorization: Bearer <CRON_SECRET>" http://localhost:3000/api/cron/remind` で手動実行し、当日の予約があれば利用者・マッサージ師それぞれに1通ずつ届くか確認する
+
+## 2026-09-10（続き3）: 利用者向け通知にキャンセル締切の注意書きを追加
+
+中山さんの指摘: 「キャンセルは施術開始の2時間前を過ぎるとできなくなる（D-3）。案内が届いた時点でもう間に合わないことがあるので、その旨を表示に加えたい」。
+
+`lib/notification-messages.ts` の `dailyDigestMessageForUser` に、キャンセルリンクの下へ固定の注意書き
+「※施術開始の2時間前を過ぎるとキャンセルできません」を追加した（リンク自体は常に表示し、文言で補足する方式）。
+
+## 2026-09-11: AC-19（週1回まで）の実装
+
+要件・設計の変更は `requirements.md`（AC-19追加）・`design.md`（AC-19の実装方針）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/app/actions/booking.ts` | `createReservation` に、同じ週（月曜始まり）に `booked` の予約が既にあれば保存を拒否するチェックを追加。`getBookedReservationInWeek` を新規追加し、週表示側から呼べるようにした |
+| `massage-booking/app/WeekSchedule.tsx` | 週内に予約がある場合、その週全体を「空きなし」と同じ扱いで選択不可にし、案内文を表示。**本人の予約時間帯だけは薄いピンクの細い斜め線パターンで色分け**して、他の「選べない」マスと区別できるようにした |
+| `massage-booking/app/MyUpcomingReservations.tsx` | キャンセル成功時に `RESERVATION_UPDATED_EVENT` を発火するよう追加。これが無いと、キャンセル後も週表示側のグレーアウトが残ったままになる不具合があった |
+| `massage-booking/app/GuideModal.tsx` | 利用ガイドに「週に一回のみ利用可能」の注記を追加 |
+
+### 確認したこと
+
+- 型チェック・lint: エラー0
+- ブラウザで、予約がある週（グレーアウト＋自分の予約時間だけ色分け）／無い週（通常通り選択可）の両方を確認
+- キャンセル直後、ページ遷移なしで週表示のグレーアウトが解除されることを確認
+
+### 残っていること
+
+「施術者の指名」の文言を「絞り込むと指名できます」に変更したが、**特定の施術者を名指しで指定する機能自体は今回実装していない**（別PRで対応中とのこと）。そちらがマージされるまでは、ガイドの文言が実際の挙動より少し先行している状態になる。
+
+## 2026-09-11: Slack通知の文面トーンを利用者・マッサージ師で分ける
+
+中山さんの指示: 「利用者へのメッセージはもっと絵文字使って可愛くして、マッサージ師への連絡は業務的な連絡でいい」。
+
+`lib/notification-messages.ts` を、利用者向け（`dailyDigestMessageForUser`）は絵文字を増やしてやわらかいトーンに、
+マッサージ師向け（`reservedMessageForTherapist` / `cancelledMessageForTherapist` / `dailyDigestMessageForTherapist`）は
+絵文字を外して業務連絡の体裁に変更した。型チェック・lintともにエラーなし。

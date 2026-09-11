@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { SessionUser } from "@/lib/session";
-import { GuideModal } from "./GuideModal";
 import { UserBar } from "./UserBar";
 
 const NAV_LINK =
@@ -36,10 +35,6 @@ export function TopNav({ user }: { user: SessionUser }) {
             <Link href="/therapists" className={linkClass("/therapists")}>
               マッサージ師
             </Link>
-            <Link href="/#my-reservations" className={NAV_LINK}>
-              自分の予約
-            </Link>
-            <GuideModal className={NAV_LINK} label="利用ガイド" />
           </nav>
         </div>
 

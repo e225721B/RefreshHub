@@ -148,6 +148,9 @@ model Reservation {
   cancelReason  String?
   cancelledAt   DateTime?
 
+  /// 施術15分前リマインド（AC-12）を送信済みなら日時が入る。二重送信を防ぐためだけに使う
+  reminderSentAt DateTime?
+
   notifications Notification[]
 
   @@index([startAt])

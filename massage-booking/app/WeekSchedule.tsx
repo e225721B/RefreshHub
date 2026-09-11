@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
+import {
+  createReservation,
+  fetchWeekAvailability,
+  getBookedReservationInWeek,
+  type WeekAvailability,
+  type WeekBooking,
+} from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -26,6 +32,12 @@ const GRID_END = "20:00";
 
 /** ドラッグで選べる最大マス数。施術は最大 45 分（15 分 × 3 マス）。 */
 const MAX_CELLS = 3;
+
+// 「あなたの予約」の時間帯。青だと他の予約系の色（rose 系）から浮くため、
+// rose の細い斜め線パターンにして「選べないが、他とは違う」ことを示す。
+const MY_BOOKED_STRIPE =
+  "bg-[repeating-linear-gradient(45deg,#fda4af_0px,#fda4af_2px,#fecdd3_2px,#fecdd3_14px)] " +
+  "dark:bg-[repeating-linear-gradient(45deg,#881337_0px,#881337_2px,#4c0519_2px,#4c0519_14px)]";
 
 function timeRows(): string[] {
   const rows: string[] = [];
@@ -64,6 +76,9 @@ export function WeekSchedule({
   // 分の境界をまたぐと表示が食い違う（ハイドレーション不一致）ため。
   // 最初の描画では空き枠自体がまだ無い（availability は空）ので、見た目には影響しない。
   const [now, setNow] = useState<Date | null>(null);
+  // 今週すでに持っている自分の予約（AC-19、週1回まで）。null ならこの週はまだ選べる
+  const [weekBooking, setWeekBooking] = useState<WeekBooking | null>(null);
+  const weekLocked = weekBooking !== null;
 
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
@@ -85,25 +100,51 @@ export function WeekSchedule({
   }, [therapists]);
 
   const reload = useCallback(async () => {
-    setAvailability(await fetchWeekAvailability(monday, therapistIds));
+    const [nextAvailability, booking] = await Promise.all([
+      fetchWeekAvailability(monday, therapistIds),
+      getBookedReservationInWeek(monday),
+    ]);
+    setAvailability(nextAvailability);
+    setWeekBooking(booking);
     // therapistsKey で依存を表す
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, therapistsKey]);
 
   useEffect(() => {
     startLoading(async () => {
-      setAvailability(await fetchWeekAvailability(monday, therapistIds));
+      const [nextAvailability, booking] = await Promise.all([
+        fetchWeekAvailability(monday, therapistIds),
+        getBookedReservationInWeek(monday),
+      ]);
+      setAvailability(nextAvailability);
+      setWeekBooking(booking);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, therapistsKey]);
 
+  // 「自分の予約」（トップ画面）側でのキャンセルなど、他コンポーネントでの変更をこの週表示にも反映する
+  useEffect(() => {
+    const onUpdated = () => {
+      reload();
+    };
+    window.addEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+  }, [reload]);
+
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
+    if (weekLocked) return false; // この週はすでに予約がある（AC-19、週1回まで）
     if (isPast(date)) return false;
     // 今日の過ぎた時間（15:00 を過ぎてからの 9:00 など）は選ばせない。
     // サーバー側でも同じ判定をしているが、開いたままの画面が古くなる分はここで止める
     if (now !== null && isStartPassed(date, time, now)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
+  }
+
+  /** このマスが、今週すでに持っている自分の予約の時間帯かどうか */
+  function isMyBookedCell(date: string, time: string): boolean {
+    if (!weekBooking || weekBooking.date !== date) return false;
+    return time >= weekBooking.startTime && time < weekBooking.endTime;
   }
 
   /** 選択範囲の先頭行・マス数・施術時間 */
@@ -299,6 +340,13 @@ export function WeekSchedule({
         </p>
       )}
 
+      {weekLocked && (
+        <p className="rounded-lg border border-red-600/30 bg-red-600/10 px-4 py-3 text-sm text-red-800 dark:text-red-300">
+          この週はすでに予約があるため、新しく選べません（1週間に1回まで）。
+          キャンセルすれば、この週にもう一度予約できます。
+        </p>
+      )}
+
       <FlashToast message={message} />
 
       {/*
@@ -404,6 +452,12 @@ export function WeekSchedule({
           <span className="inline-block size-3 rounded-sm bg-black/25 dark:bg-white/30" />
           空きなし（選べません）
         </span>
+        {weekLocked && (
+          <span className="flex items-center gap-1.5">
+            <span className={`inline-block size-3 rounded-sm ${MY_BOOKED_STRIPE}`} />
+            あなたの予約
+          </span>
+        )}
       </div>
 
       {/* 週のスケジュール表 */}
@@ -442,6 +496,7 @@ export function WeekSchedule({
                   const passed = isPast(date) || (now !== null && isStartPassed(date, time, now));
                   const inSelection = isInSelection(date, rowIndex);
                   const selectionValid = selected?.valid ?? true;
+                  const myBooked = isMyBookedCell(date, time);
 
                   let tone = "bg-black/15 dark:bg-white/25"; // 空きなし
                   if (inSelection) {
@@ -450,6 +505,8 @@ export function WeekSchedule({
                       : "bg-red-500/45";
                   } else if (open) {
                     tone = "bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/20 dark:hover:bg-rose-400/35";
+                  } else if (myBooked) {
+                    tone = MY_BOOKED_STRIPE;
                   }
 
                   return (
@@ -460,9 +517,11 @@ export function WeekSchedule({
                       title={
                         open
                           ? `${formatShort(date)} ${time} から。ドラッグで長さを変えられます`
-                          : passed
-                            ? "過ぎた時間です"
-                            : "空きがありません"
+                          : myBooked
+                            ? "あなたの予約の時間です"
+                            : passed
+                              ? "過ぎた時間です"
+                              : "空きがありません"
                       }
                       className={`h-7 border border-black/10 p-0 dark:border-white/15 ${tone} ${
                         open ? "cursor-pointer" : "cursor-not-allowed"
@@ -470,7 +529,7 @@ export function WeekSchedule({
                     >
                       <span className="sr-only">
                         {formatShort(date)} {time}{" "}
-                        {open ? "空き" : passed ? "過ぎた時間" : "空きなし"}
+                        {open ? "空き" : myBooked ? "あなたの予約" : passed ? "過ぎた時間" : "空きなし"}
                       </span>
                     </td>
                   );
