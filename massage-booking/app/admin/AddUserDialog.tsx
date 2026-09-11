@@ -12,8 +12,10 @@ import { GENDERS, GENDER_LABEL, ROLES, ROLE_LABEL, type Role } from "@/lib/roles
 
 const INITIAL: CreateUserState = { error: null, created: null };
 
+// text-base（16px）→ sm 以上で 15px。iOS Safari は 16px 未満の入力欄にフォーカスすると
+// 画面を勝手に拡大するため、狭い画面では 16px を下回らせない
 const inputClass =
-  "w-full rounded-2xl border border-rose-200/70 bg-rose-50/40 px-4 py-3 text-[15px] text-stone-800 placeholder:text-stone-400 shadow-sm transition focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-rose-300/40 dark:focus:bg-white/10 dark:focus:ring-rose-300/15";
+  "w-full rounded-2xl border border-rose-200/70 bg-rose-50/40 px-4 py-3 text-base sm:text-[15px] text-stone-800 placeholder:text-stone-400 shadow-sm transition focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-rose-300/40 dark:focus:bg-white/10 dark:focus:ring-rose-300/15";
 
 const labelClass = "text-sm font-medium text-stone-700 dark:text-stone-200";
 
@@ -24,7 +26,7 @@ function SubmitButton() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+      className="w-full rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
     >
       {pending ? "追加しています…" : "追加する"}
     </button>
@@ -71,10 +73,11 @@ function CreatedPanel({
 
       <div className="mt-4">
         <p className={labelClass}>初期パスワード</p>
-        <div className="mt-2 flex items-center gap-2">
+        {/* 狭い画面ではパスワードを 1 行使い、「表示 / コピー」を下の行へ回す */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <code
             aria-label={revealed ? "初期パスワード" : "初期パスワード（伏せ字）"}
-            className="flex-1 rounded-2xl border border-rose-200/70 bg-white px-4 py-3 font-mono text-[15px] tracking-wide text-stone-800 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+            className="w-full rounded-2xl border border-rose-200/70 bg-white px-4 py-3 font-mono text-[15px] break-all tracking-wide text-stone-800 sm:w-auto sm:flex-1 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
           >
             {revealed ? created.password : "*".repeat(created.password.length)}
           </code>
@@ -82,7 +85,7 @@ function CreatedPanel({
             type="button"
             onClick={() => setRevealed((v) => !v)}
             aria-pressed={revealed}
-            className="rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
+            className="flex-1 rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 sm:flex-none dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
           >
             {revealed ? "隠す" : "表示"}
           </button>
@@ -94,7 +97,7 @@ function CreatedPanel({
                 () => setCopied(false),
               );
             }}
-            className="rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
+            className="flex-1 rounded-2xl border border-rose-200/70 px-4 py-3 text-sm font-medium text-stone-700 transition hover:bg-rose-50 sm:flex-none dark:border-white/15 dark:text-stone-200 dark:hover:bg-white/10"
           >
             {copied ? "コピーしました" : "コピー"}
           </button>
@@ -106,7 +109,7 @@ function CreatedPanel({
         </p>
       </div>
 
-      <div className="mt-6 flex justify-end gap-3">
+      <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
           onClick={onAddMore}
@@ -231,7 +234,7 @@ function AddUserForm({ onAddMore, onClose }: { onAddMore: () => void; onClose: (
         </p>
       )}
 
-      <div className="mt-1 flex justify-end gap-3">
+      <div className="mt-1 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
           onClick={onClose}
@@ -273,7 +276,7 @@ export function AddUserDialog() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 active:scale-[0.99]"
+        className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-rose-400 to-orange-300 px-5 py-2.5 sm:w-auto text-sm font-semibold text-white shadow-lg shadow-rose-500/25 transition hover:shadow-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 active:scale-[0.99]"
       >
         <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -291,7 +294,7 @@ export function AddUserDialog() {
             aria-modal="true"
             aria-labelledby="add-user-title"
             onClick={(e) => e.stopPropagation()}
-            className="my-8 w-full max-w-lg rounded-[1.75rem] border border-white/70 bg-white p-8 text-left shadow-2xl shadow-rose-950/10 dark:border-white/10 dark:bg-stone-900"
+            className="my-4 w-full max-w-lg rounded-[1.75rem] border border-white/70 bg-white p-5 text-left shadow-2xl shadow-rose-950/10 sm:my-8 sm:p-8 dark:border-white/10 dark:bg-stone-900"
           >
             <AddUserForm key={formKey} onAddMore={reset} onClose={close} />
           </div>

@@ -1,12 +1,18 @@
 flowchart TD
   L["/login<br/>ログイン<br/>AC-16"]
 
-  L --> B["/ 予約画面<br/>上段: 自分の予約 + キャンセル<br/>下段: 週表示の空き枠<br/>AC-1〜4 / AC-13"]
+  L --> B["/ トップ画面<br/>上段: 自分の予約 + キャンセル<br/>ヒーロー + かんたん予約（自動で 1 枠提案）<br/>マッサージ師紹介への導線<br/>AC-1〜2 / AC-13"]
 
   B --> G["利用ガイド<br/>（モーダル）<br/>AC-5"]
   G --> B
-  B --> M["予約確定<br/>（モーダル）<br/>内容確認 + 備考<br/>AC-2"]
-  M --> B
+  B --> QM["かんたん予約の確認<br/>（モーダル）<br/>AC-2"]
+  QM --> B
+
+  B --> BK["/booking 予約画面<br/>週表示の空き枠<br/>AC-1〜4"]
+  BK --> M["予約確定<br/>（モーダル）<br/>内容確認 + 備考<br/>AC-2 / AC-3"]
+  M --> BK
+
+  B --> TS["/therapists<br/>マッサージ師紹介<br/>得意分野・タグ・勤務パターン"]
 
   L --> T["/therapist<br/>自分の担当予約一覧<br/>AC-15"]
 
@@ -19,5 +25,7 @@ flowchart TD
 
   style L fill:#fff4cc,color:#000000
   style B fill:#e6f2ff,color:#000000
+  style BK fill:#e6f2ff,color:#000000
+  style TS fill:#fff0f6,color:#000000
   style T fill:#e6ffe6,color:#000000
   style A fill:#ffe6f2,color:#000000

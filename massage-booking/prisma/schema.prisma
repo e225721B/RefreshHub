@@ -52,6 +52,11 @@ model Therapist {
   userId String  @unique
   active Boolean @default(true)
 
+  // マッサージ師紹介画面（画面 3）用の紹介文。管理画面からの編集は対象外（表示のみ）
+  bio             String @default("")
+  experienceYears Int    @default(0)
+  tags            String @default("") // カンマ区切りの短いタグ（例: "肩・首,やさしめ"）
+
   workHours    TherapistWorkHours[]
   absences     TherapistAbsence[]
   reservations Reservation[]

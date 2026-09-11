@@ -35,6 +35,10 @@ export function UserHistoryModal({ userId, onClose }: { userId: string; onClose:
 
   useEffect(() => {
     let active = true;
+    // 表示中の利用者が変わるたびに前回の内容をリセットしてから取得し直す（意図的な同期リセット）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHistory(undefined);
+    setPage(0);
     listUserTreatmentHistory(userId).then((h) => {
       if (active) setHistory(h);
     });
