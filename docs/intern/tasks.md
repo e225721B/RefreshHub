@@ -949,3 +949,175 @@ $ npx tsx --test lib/*.test.ts → 56 件すべて pass
 | 2026-09-10 | ヒーロー画像・マッサージ師の写真をフリー素材（Picsum Photos）の仮画像にした | — | 実際の写真が無いため。本物の写真に差し替え予定 |
 
 確認: 学生 [ ] / メンター [ ]
+
+---
+
+## 追加（2026-09-10）: 管理者画面のモバイル対応
+
+管理者画面（`/admin` / `/admin/stats` / `/admin/users`）を、スマートフォンの幅（375px 想定）で
+そのまま使えるようにした。**PC 側の見た目は変えていない**（`sm:` 以上で従来と同じ指定に戻している）。
+
+### 決めたこと（なぜそうしたか）
+
+| 困りごと | 375px で起きること | 取った手 |
+|---|---|---|
+| ヘッダーが 3 画面でばらばら | 見出し・リンク 3 つ・ユーザー欄が折り返して 4 段になる | `app/admin/AdminHeader.tsx` に共通化し、リンクを**タブ型**にして現在地が分かるようにした |
+| 予約状況の表 | 横スクロールすると時刻列が流れて、どの行か分からなくなる | 表に最小幅を持たせ、**時刻列を `sticky left-0` で左端に固定**した |
+| ユーザー管理の表（6 列） | 6 列は物理的に入らない | 列を消さず、**メールアドレスと性別を氏名セルの中に畳んだ**（`hidden md:table-cell`）。表を 2 つに分けないのは、集計画面から飛んでくる `#user-<id>` の目印を 1 か所に保つため |
+| 入力欄の文字サイズ | iOS Safari は 16px 未満の入力欄にフォーカスすると**画面を勝手に拡大する** | 狭い画面だけ `text-base`（16px）、`sm:` 以上で元のサイズに戻す |
+| ボタンのタップ領域 | `py-1`（高さ約 24px）は指で押しづらい | 高さを広げ、モーダルのボタンは狭い画面で縦積み・全幅にした |
+| グラフの吹き出し | タッチ端末には `hover` が無く、数値が読めない | `group-active`（指を置いている間）でも出す。読めないときの逃げ道として「数字で見る」の表は従来どおり残す |
+
+`viewport` の meta タグは Next.js 16 が既定で入れる（`node_modules/next/dist/docs/01-app/01-getting-started/14-metadata-and-og-images.md` の "Default fields"）ため、`layout.tsx` には足していない。
+
+### 変えた・作ったファイル
+
+- 新規: `app/admin/AdminHeader.tsx`（3 画面共通のヘッダー）
+- 変更: `app/admin/page.tsx` / `app/admin/users/page.tsx` / `app/admin/stats/page.tsx` /
+  `app/admin/stats/Charts.tsx` / `app/admin/users/UserActions.tsx` / `app/admin/AddUserDialog.tsx` / `app/UserBar.tsx`
+
+### 確認ログ
+
+```
+$ npx tsc --noEmit   → エラー 0
+$ npm run lint       → エラー 0
+$ npm run build      → ✓ / Route: / , /admin , /admin/stats , /admin/users , /login
+```
+
+`npm run start`（ポート 3111）に管理者の Cookie を付けて 3 画面を取得し、HTML と CSS を確認した。
+
+```
+/admin       200
+/admin/users 200
+/admin/stats 200
+```
+
+- 3 画面すべてに共通ヘッダー（`aria-label="管理者メニュー"`）が出ている
+- 予約状況の表に `sticky left-0` と最小幅が入っている
+- ユーザー管理で `id="user-..."` は 9 件・**重複 0**（列を畳んでもアンカーが 1 か所のままであることの確認）
+- 生成された CSS に `table-cell` / `order-2` / `flex-col-reverse` / `chart-grid` の影 などの指定が含まれている
+
+### 学生が確認すること（未確認）
+
+**ブラウザの開発者ツールで幅を 375px（iPhone SE 相当）にして、3 画面を開いてください。**
+見てほしいのは 1 つだけ: **`/admin` の予約状況の表を横にスクロールしたとき、左端の時刻がその場に残るか**。
+残っていれば意図どおりです。残らない・線がずれる場合は、その画面のスクリーンショットを見せてください。
+
+なお、いま手元の DB には**予約データが 1 件も入っていない**（`prisma.reservation` が 0 件）。
+表の中身が空のままだと確認しづらいので、必要なら `npx tsx prisma/seed.ts` でシードを入れ直してから見てください。
+
+確認: 学生 [ ] / メンター [ ]
+
+### 追記（2026-09-10）: 開いた直後に画面が拡大される件の修正
+
+**症状**: スマートフォンで開いた時・画面を切り替えた時に、少し拡大された状態で表示される。
+
+**原因**: ログイン画面の入力欄が `text-[15px]`（15px）で、しかもメールアドレス欄に `autoFocus` が付いていた。
+iOS Safari は **16px 未満の入力欄にフォーカスが当たると画面を拡大し、その倍率はページを移動しても残る**。
+そのため「開いた瞬間に拡大 → ログイン後の管理者画面もそのまま拡大」という見え方になっていた。
+（管理者画面の入力欄は前回 16px にしてあったが、そこへ来る前のログイン画面が残っていた。）
+
+**直したもの**（どちらも狭い画面だけ 16px にし、`sm:`（640px）以上は従来の値に戻している）
+
+| ファイル | 変更 |
+|---|---|
+| `app/login/LoginForm.tsx` | 入力欄 `text-[15px]` → `text-base sm:text-[15px]` |
+| `app/WeekSchedule.tsx` | 予約の備考欄 `text-sm` → `text-base sm:text-sm` |
+
+**`user-scalable=no` / `maximum-scale=1` は使わない。**拡大は止まるが、指で拡大して読むこともできなくなるため
+（文字が小さくて読めない人が読めなくなる）。文字サイズを 16px 以上にするのが正しい直し方。
+
+**確認**
+
+- アプリ内の入力欄（`input` / `select` / `textarea`、hidden・チェックボックスを除く）を全部洗い出し、
+  **モバイル時に 16px 未満のものが 1 つも残っていない**ことを確認した
+- 生成された CSS で、15px・14px の指定がすべて `@media (min-width:40rem)` の中にあることを確認した
+  → **PC（640px 以上）の見た目は変わっていない**
+- `npx tsc --noEmit` / `npm run lint` / `npm run build` すべてエラー 0
+
+**学生へ**: すでに拡大されたまま固定されている端末では、一度ピンチで戻すか再読み込みしてください。
+Safari は拡大率をサイト単位で覚えているため、直したあとも最初の 1 回だけ残ることがあります。
+
+---
+
+## 追加（2026-09-10）: スマホ幅の画面を撮って確認し、はみ出しを直した
+
+### 1. マージの解消が壊れていたので直した
+
+`901c7ea コンフリクト解消による修正` の時点で、**ブランチがビルドできない状態**だった。
+
+| ファイル | 何が起きていたか | 直し方 |
+|---|---|---|
+| `app/admin/page.tsx` | 古いヘッダーと新しい `AdminHeader` が二重に残り、`<main/>` という不正なタグが入っていた | 古い側を削除。`main` から入った `/therapist` へのリンクは `AdminHeader` の `extraLinks` として残した |
+| `app/admin/users/page.tsx` | `getCurrentUser` を import しているのに `getCurrentUserForRequest()` を呼んでいた | import を新しい方に統一 |
+| `app/admin/stats/page.tsx` | 1 画面だけ古いセッション取得のままだった | 他の管理者画面と同じ `getCurrentUserForRequest()` に統一 |
+
+`prisma generate` も必要だった（マージで入った `Session` / `AbsenceRequest` に生成済みクライアントが追いついていなかった）。
+
+### 2. スマホ幅でページ全体が画面からはみ出していた（今回の本命）
+
+390px 幅で測ると **`main` の幅が 544px（集計は 567px）** になっていて、ヘッダーやボタンが画面の外に出ていた。
+
+原因は `body` が `flex` で `main` が `mx-auto` のため、**`main` が「中身の最大幅」に合わせて広がろうとする**こと。
+その結果、表の `min-w-[32rem]` が `overflow-x-auto` の外へ漏れて、ページ全体を押し広げていた。
+
+直し方は `main` に `w-full sm:w-auto` を足すだけ。**`sm:` で戻しているのは、PC では `main` の幅が変わってしまうため**
+（実測: `/admin/users` の `main` は 716px → `w-full` を無条件に付けると 1024px に変わる）。
+
+```
+        390px 幅        修正前 → 修正後
+/admin        main 544px → 390px（はみ出しなし）
+/admin/users  main 390px → 390px（もともと問題なし）
+/admin/stats  main 567px → 390px（はみ出しなし）
+
+1440px 幅（PC）  修正前 → 修正後
+/admin        main 923px → 923px（変化なし）
+/admin/users  main 716px → 716px（変化なし）
+```
+
+### 3. 横スクロール時に表の描画が乱れていた
+
+時刻列を `sticky` で固定したところ、横にスクロールすると**画面外へ出たセルの枠線が時刻列の上に描かれ**、
+行がずれて二重に見えていた。`position: sticky` と `border-collapse: collapse` を組み合わせたときの既知の挙動
+（枠線がセルではなく表に属するため、固定したセルと一緒に動かない）。
+
+狭い画面だけ `border-separate` に切り替え、各セルは右と下だけに線を引くようにして回避した（`max-sm:` なので PC は従来のまま）。
+
+### 4. 画面の写真（スマホ幅 390px = iPhone 14 相当）
+
+| 画面 | 写真 |
+|---|---|
+| 予約状況 | `docs/intern/screens/mobile-admin-schedule.png` |
+| 予約状況（表を右端までスクロール／時刻列が残る） | `docs/intern/screens/mobile-admin-schedule-scrolled.png` |
+| ユーザー管理 | `docs/intern/screens/mobile-admin-users.png` |
+| 集計 | `docs/intern/screens/mobile-admin-stats.png` |
+| ユーザー追加のモーダル | `docs/intern/screens/mobile-admin-add-user.png` |
+
+**撮り方**（学生が自分で撮り直すとき）
+
+`prisma/seed.ts` は全テーブルを `deleteMany` するため、**手元の `dev.db` には実行しないこと**。
+使い捨ての DB を別に作り、そちらへ入れて撮った。
+
+```
+DATABASE_URL="file:/tmp/shot.db" npx prisma migrate deploy
+DATABASE_URL="file:/tmp/shot.db" npx tsx prisma/seed.ts
+DATABASE_URL="file:/tmp/shot.db" PORT=3112 npm run start
+```
+
+Chrome を CDP（開発者ツールのプロトコル）で動かし、390x844・2 倍解像度で撮影した。
+ログインはフォームから行っている（セッションが `Session` テーブルの token 方式になったため、Cookie を作るだけでは入れない）。
+
+### 5. 残っている問題（今回は直していない）
+
+- **利用者側のトップ画面（`/`）は、まだ横にはみ出す**。390px の画面で `main` が 688px。
+  管理者画面と同じ原因だが、週表示の表（`min-w-[640px]`）をどう見せるかを決める必要があり、別途モバイル対応が要る。
+- `app/therapist/today/UserHistoryModal.tsx` に lint エラーが 1 件（`react-hooks/set-state-in-effect`）。
+  `main` から入ったコードで、今回の変更とは無関係。
+
+### 6. 確認
+
+```
+$ npx tsc --noEmit   → エラー 0
+$ npm run build      → ✓（/admin, /admin/stats, /admin/users, /therapist ほか）
+$ npm run lint       → 上記 1 件のみ（マージ由来）
+```

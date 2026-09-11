@@ -509,13 +509,14 @@ export function WeekSchedule({
               </div>
               <label className="mb-6 block text-sm">
                 <span className="mb-1 block font-medium">備考（任意）</span>
+                {/* 狭い画面だけ 16px にする（それ未満だと iOS が画面を拡大し、倍率が残る） */}
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   maxLength={50}
                   rows={2}
                   placeholder="施術者への伝達事項など"
-                  className="w-full rounded border border-black/15 bg-background px-3 py-2 text-sm dark:border-white/20"
+                  className="w-full rounded border border-black/15 bg-background px-3 py-2 text-base sm:text-sm dark:border-white/20"
                 />
               </label>
               <div className="flex justify-end gap-2">
