@@ -8,8 +8,20 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+
+  // Supabase は接続先が 2 つある。役割が違うので両方を設定する。
+  //
+  // url       … アプリが普段使う接続。**Connection pooler（ポート 6543）**を指す。
+  //             Vercel は関数が呼ばれるたびに別インスタンスが立ち上がるため、
+  //             DB へ直接つなぐと接続数がすぐ上限に達する。pooler 経由にして数を抑える。
+  //             URL の末尾に `?pgbouncer=true&connection_limit=1` を付ける（prepared statement の
+  //             作り置きを止める指定。付けないと pooler 経由で「prepared statement already exists」が出る）。
+  // directUrl … マイグレーション専用の接続。**直結（ポート 5432）**を指す。
+  //             prisma migrate はテーブルの作り替えなどで pooler を通せない操作をするため、
+  //             ここだけ直結を使う（Prisma が自動的に使い分ける）。
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /// 利用者・マッサージ師・管理者の共通アカウント。自己登録は無く、管理者が登録する。

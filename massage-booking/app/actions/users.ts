@@ -77,9 +77,16 @@ export async function listUsers(options: UserListOptions = {}): Promise<UserList
   const where: Prisma.UserWhereInput = {
     ...(options.includeDeleted ? {} : { active: true }),
     ...(isRole(options.role ?? "") ? { role: options.role } : {}),
-    // SQLite の contains は ASCII について大文字小文字を区別しない（メールは小文字で保存している）
+    // **Postgres の contains は大文字小文字を区別する**ため、mode: "insensitive" を明示する。
+    // SQLite では ASCII に限り区別しなかったので指定が要らなかったが、Supabase（Postgres）に
+    // 移したあとは、これが無いと "Yamada" で検索して "yamada" が見つからなくなる。
     ...(keyword
-      ? { OR: [{ name: { contains: keyword } }, { email: { contains: keyword } }] }
+      ? {
+          OR: [
+            { name: { contains: keyword, mode: "insensitive" as const } },
+            { email: { contains: keyword, mode: "insensitive" as const } },
+          ],
+        }
       : {}),
   };
 
