@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStats } from "@/app/actions/stats";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
 import { formatShort, fromDateString, shiftDate, toDateString, todayString } from "@/lib/dates";
 import { ROLE_LABEL, isRole } from "@/lib/roles";
 import { getCurrentUserForRequest } from "@/lib/session";
 import { formatMinutes, normalizeRange } from "@/lib/stats";
+import { MailboxButton } from "../../MailboxButton";
 import { AdminHeader } from "../AdminHeader";
 import { HorizontalBarChart, PeriodChart } from "./Charts";
 
@@ -41,6 +43,7 @@ export default async function AdminStatsPage({
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fstats");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const params = await searchParams;
   // 画面の入力欄にも「実際に集計した期間」を出したいので、正した後の値を使う
@@ -56,7 +59,12 @@ export default async function AdminStatsPage({
   // sm 以上は従来どおり w-auto に戻す（PC では main の幅が変わってしまうため）。
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
-      <AdminHeader title="集計" current="/admin/stats" user={user} />
+      <AdminHeader
+        title="集計"
+        current="/admin/stats"
+        user={user}
+        actions={<MailboxButton initialUnreadCount={unreadMailboxCount} />}
+      />
 
       {/* --- 期間指定 --------------------------------------------------- */}
       <section className="mb-8 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-4 py-4 sm:px-5 dark:border-white/10 dark:bg-white/5">

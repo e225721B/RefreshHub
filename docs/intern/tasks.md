@@ -878,6 +878,134 @@ $ npm run build      → ✓ / Route: / , /admin , /admin/stats , /admin/users ,
 
 ---
 
+# 追加（2026-09-10）: 休み申請の管理者通知に、ブラウザプッシュ通知を追加
+
+学生の指示: 「マッサージ師の休み申請の通知を、現状のもの（アプリ内メールボックス）に**プラスして**、
+管理者にブラウザプッシュ通知も行くようにしたい」。既存の `notifyAdmins()`（`app/actions/therapist.ts`）を置き換えず、
+**追加**する形にした。
+
+## 実装前に決めたこと（学生の回答）
+
+| # | 論点 | 決定 |
+|---|---|---|
+| P-1 | 通知の許可（購読）をいつ求めるか | **`/admin` にボタンを置き、押したときだけブラウザの許可ダイアログを出す。**ログイン直後に自動で求めると、いきなりのダイアログで拒否されやすいため |
+| P-2 | 通知をクリックしたときの遷移先 | **`/admin`**（予約状況画面）。フォーカス済みのタブがあればそれを前面に出し、無ければ新しく開く |
+| P-3 | 「登録」だけでなく「取消」でも送るか | **両方。**既存の `notifyAdmins()` は登録・取消どちらからも呼ばれているため、その関数自体を拡張すれば自然に両方へ広がる |
+
+## 仕組み
+
+このプロジェクトに Web Push 基盤が無かったため、ゼロから追加した（Next.js 公式ガイド
+`node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md` に沿った構成）。
+
+```
+休み登録/取消 → notifyAdmins(body)
+                 ├─ 既存: MailboxMessage を作成（アプリ内お知らせ）
+                 └─ 追加: sendPushToAdmins() → 管理者の PushSubscription 全件へ Web Push 送信
+```
+
+| ファイル | 役割 |
+|---|---|
+| `prisma/schema.prisma`（`PushSubscription` 追加） | 購読情報（endpoint / p256dh / auth）。1 人が複数端末で購読できるよう endpoint 単位で持つ |
+| `public/service-worker.js` | push イベントで通知を表示し、クリックされたら `/admin` にフォーカス／遷移する |
+| `lib/push.ts` | `sendPushToAdmins()`。VAPID 鍵が無い環境では何もしない。**送信失敗は例外を投げず**、呼び出し元（休みの登録・取消）を止めない。届かなくなった購読（404/410）はその場で削除する |
+| `app/actions/push.ts` | `subscribeToPush` / `unsubscribeFromPush`（Server Action。`requireRole(["admin"])` で保護） |
+| `app/admin/PushNotificationButton.tsx` | 「プッシュ通知を有効にする」ボタン（`/admin` ヘッダー）。押すとブラウザの許可ダイアログ→購読→DB保存まで一気に行う |
+| `app/actions/therapist.ts`（`notifyAdmins` 拡張） | メールボックス書き込みに続けて `sendPushToAdmins()` を呼ぶだけの 1 行追加 |
+| `.env` | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`（`npx web-push generate-vapid-keys` で生成した開発用の鍵） |
+
+`web-push` パッケージ（+ `@types/web-push`）を追加。マイグレーション: `prisma/migrations/20260910095853_push_subscriptions/`。
+
+## 確認ログ
+
+### 自動テスト・型・Lint・ビルド
+
+```
+$ npx tsx --test lib/*.test.ts
+# tests 87
+# pass 87
+# fail 0
+
+$ npx tsc --noEmit   → エラー 0
+$ npm run lint       → エラー 0
+$ npm run build      → ✓ / 既存のルートに変更なし
+```
+
+### 送信の後始末（届かなくなった購読の自動削除）を確認
+
+管理者に、実在しないダミーの endpoint で購読を 1 件だけ仮登録し、`sendPushToAdmins()` を直接呼び出した。
+
+```
+1 回目: 認証キーの長さが不正なテストデータ → web-push がエラーを返す
+        → sendPushToAdmins は例外を投げずに完了（呼び出し元を止めない設計どおり）
+
+2 回目: 正しい形式のダミー購読（実在しない endpoint）で再実行
+        → 送信先（Google の Push サービス）から 404/410 相当の応答
+        → sendPushToAdmins が購読を自動削除
+        → 後始末で同じ id を削除しようとしたら Prisma が
+          「No record was found for a delete」＝ 既に削除済みであることを確認
+```
+
+**「届かなくなった購読を自動で掃除する」動作が実際に働くことを確認した。**
+テスト用の購読データは残っていない（自動削除された）。
+
+### ブラウザでの実機確認（2026-09-11・確認済み）
+
+学生から「同時に管理者とマッサージ師の画面を開けず確認できなかった」と連絡を受け、代わりに確認した。
+`browser.newContext()`（シークレットウィンドウ相当）は Chrome が Push API 自体を許可しない
+（`Chrome currently does not support the Push API in incognito mode`）ため、
+**別々のプロファイルディレクトリで Chrome を 2 つ起動し**、片方を管理者、もう片方をマッサージ師としてログインさせて確認した
+（学生が「同時に開けない」と感じた制約は、ブラウザのプロファイルを分ければ回避できる。通常のブラウザでも
+「管理者は通常ウィンドウ、マッサージ師はシークレットウィンドウ」等、別プロファイル相当にすれば同時に開ける）。
+
+```
+1. 管理者プロファイルでログイン → /admin → 「プッシュ通知を有効にする」→ 許可 → 「プッシュ通知 ON」に変化
+   購読先: https://fcm.googleapis.com/fcm/send/f0ld-neVToc:APA91bHfjsEj...（実際の Google の Push サービス）
+
+2. 別プロファイルでマッサージ師（施術者 A）としてログイン → /therapist/absence
+   → 2026-09-17（終日・理由「自動確認テスト」）で休みを登録 → 「休みを登録しました」
+
+3. 管理者側の画面をアクティブにせず、Service Worker の通知一覧（registration.getNotifications()）を確認
+   → 実際に通知が 1 件表示されていた:
+       タイトル: 「お知らせ」
+       本文  : 「施術者 男性1さんが 2026-09-17（終日）の休みを登録しました（理由：自動確認テスト）」
+       data  : { url: "/admin" }（クリック時の遷移先。service-worker.js の notificationclick で使う値）
+
+4. マッサージ師側で同じ休みを取り消す → 管理者側にもう 1 件、取消の通知が届いていることを確認:
+       「施術者 男性1さんが 2026-09-17 の休みを取り消しました」
+
+5. 後始末: 休みの取消（済み）・プッシュ通知の購読解除（「プッシュ通知 ON」→ 押して解除）を実施。
+   確認後、DB に購読・休み登録とも 0 件であることを確認（テストデータは残っていない）
+```
+
+**登録・取消のどちらでも、実際に Google の Push サービスまで届いて通知が生成されることを確認した。**
+これは lib/push.ts のロジックが正しいことをコード上で確認しただけでなく、
+**実際のブラウザ（Chrome）・実際の VAPID 鍵・実際の Push サービスを使って end-to-end で確認した**という意味で、
+前節（ダミー endpoint でのエラー処理確認）より一段強い確認になっている。
+
+残っているのは、**画面に実際に浮かぶ通知トースト（Windows の右下など）を目で見る**ことと、
+**そのトーストをクリックして `/admin` にフォーカス／遷移すること**の 2 点。
+これは自動操作では検証しづらい「見た目」の確認であり、`service-worker.js` の該当コードは変更していない
+（`notificationclick` で `data.url` を見て `clients.openWindow` / `focus` するだけの単純な処理）ため、
+毎回の動作確認としては上記の自動確認で十分と考えている。念のため目視したい場合は以下を実施する。
+
+1. `npm run dev` → 管理者でログイン → `http://localhost:3000/admin` → 「プッシュ通知を有効にする」→ 許可
+2. 別のマッサージ師アカウントで休みを登録する
+3. 画面右下（Windows）にトーストが浮かぶか、クリックで `/admin` のタブにフォーカスが移るか
+
+**注意:** Web Push は HTTPS（または `localhost`）でのみ動く。`localhost:3000` での確認であれば問題ない。
+
+## 既知の制約
+
+| # | 内容 |
+|---|---|
+| PUSH-1 | VAPID 鍵は開発用に生成したもの。本番運用する場合は鍵を再生成し、`.env` を環境ごとに分ける |
+| PUSH-2 | 管理者がブラウザの通知設定自体をオフにしている場合は届かない（OS 側の設定なのでアプリ側では検知できない） |
+| PUSH-3 | メールボックス（既存）とプッシュ通知（今回追加）は同じ文言を使っている。プッシュ通知だけ短く要約する、という要望が出たら `notifyAdmins` の呼び出し側でタイトル・本文を分ければ対応できる |
+
+確認: 学生 [ ] / メンター [ ]
+
+---
+
 # トップ画面の再構成 + マッサージ師紹介画面（画面 2〜4）
 
 学生が持参したトップ画面・マッサージ師紹介画面のスクリーンショットに合わせて実装した。

@@ -79,6 +79,10 @@ export function ShiftOverviewGrid({
   const otherIds = therapists.filter((t) => !t.isSelf).map((t) => t.id);
   // 自分の列を常に一番左に固定する
   const selected = showAll ? [...ownIds, ...otherIds] : fallbackIds;
+  // 選択人数が増えるほど各日の横幅も必要になる。狭い画面ではグリッド全体を横スクロールさせて、
+  // 列が潰れて読めなくなるのを防ぐ（縦書きラベルが数十 px に潰れると判読できないため）。
+  const perDayMinPx = Math.max(88, selected.length * 44);
+  const gridMinWidth = perDayMinPx * days.length + 8 * (days.length - 1);
 
   const isFirstRender = useRef(true);
   useEffect(() => {
@@ -96,28 +100,28 @@ export function ShiftOverviewGrid({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4">
         <button
           type="button"
           onClick={() => setMonday(shiftWeek(monday, -1))}
-          className="rounded-full border border-black/15 px-3.5 py-1.5 text-sm dark:border-white/20"
+          className="rounded-full border border-black/15 px-2.5 py-1.5 text-xs sm:px-3.5 sm:text-sm dark:border-white/20"
         >
           ◁ 前週
         </button>
-        <span className="min-w-32 text-center text-lg font-bold text-stone-800 dark:text-stone-100">
+        <span className="min-w-24 text-center text-base font-bold text-stone-800 sm:min-w-32 sm:text-lg dark:text-stone-100">
           {formatWeekLabel(monday)}
         </span>
         <button
           type="button"
           onClick={() => setMonday(shiftWeek(monday, 1))}
-          className="rounded-full border border-black/15 px-3.5 py-1.5 text-sm dark:border-white/20"
+          className="rounded-full border border-black/15 px-2.5 py-1.5 text-xs sm:px-3.5 sm:text-sm dark:border-white/20"
         >
           翌週 ▷
         </button>
         <button
           type="button"
           onClick={() => setMonday(mondayOf(todayString()))}
-          className="rounded-full border border-black/15 px-3.5 py-1.5 text-sm dark:border-white/20"
+          className="rounded-full border border-black/15 px-2.5 py-1.5 text-xs sm:px-3.5 sm:text-sm dark:border-white/20"
         >
           今週
         </button>
@@ -162,13 +166,13 @@ export function ShiftOverviewGrid({
         </p>
       ) : (
         <div className="flex gap-2">
-          <div className="w-12 shrink-0">
+          <div className="w-8 shrink-0 sm:w-12">
             <div className="h-8" />
             <div className="relative" style={{ height: BODY_HEIGHT }}>
               {HOURS.map((h) => (
                 <div
                   key={h}
-                  className="absolute -translate-y-1/2 text-xs tabular-nums text-stone-400"
+                  className="absolute -translate-y-1/2 text-[10px] tabular-nums text-stone-400 sm:text-xs"
                   style={{ top: pxFor(h * 60) }}
                 >
                   {String(h).padStart(2, "0")}:00
@@ -176,7 +180,8 @@ export function ShiftOverviewGrid({
               ))}
             </div>
           </div>
-          <div className="grid min-w-0 flex-1 grid-cols-5 gap-2">
+          <div className="min-w-0 flex-1 overflow-x-auto">
+          <div className="grid grid-cols-5 gap-2" style={{ minWidth: gridMinWidth }}>
             {days.map((date) => (
               <div key={date} className="flex flex-col">
                 <div
@@ -263,6 +268,7 @@ export function ShiftOverviewGrid({
                 </div>
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}

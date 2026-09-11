@@ -15,6 +15,8 @@ export default async function Home({
   // 未ログインならログイン画面へ。戻り先を渡し、ログイン後にここへ戻す。
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2F");
+  // マッサージ師は予約する側ではないため、自分の予約を見る画面へ飛ばす。
+  if (user.role === "therapist") redirect("/therapist");
   const { denied } = await searchParams;
 
   return (

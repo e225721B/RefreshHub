@@ -2,6 +2,9 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUserForRequest } from "@/lib/session";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
+import { MailboxButton } from "../MailboxButton";
+import { PushNotificationButton } from "../PushNotificationButton";
 import { AddUserDialog } from "./AddUserDialog";
 import { AdminHeader } from "./AdminHeader";
 import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
@@ -47,6 +50,7 @@ export default async function AdminPage({
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const date =
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayString();
@@ -104,6 +108,12 @@ export default async function AdminPage({
         current="/admin"
         user={user}
         extraLinks={[{ href: "/therapist", label: "マッサージ師向け画面を見る" }]}
+        actions={
+          <>
+            <PushNotificationButton />
+            <MailboxButton initialUnreadCount={unreadMailboxCount} />
+          </>
+        }
       />
 
       {/* スケジュール表とは別に、ユーザーの追加をここから行う（AC-17） */}

@@ -27,7 +27,8 @@ model User {
   cancelledReservations Reservation[]      @relation("ReservationCancelledBy")
   registeredAbsences    TherapistAbsence[]
   notifications         Notification[]
-  decidedAbsenceRequests AbsenceRequest[]  @relation("AbsenceRequestDecidedBy")
+  mailboxMessages       MailboxMessage[]
+  pushSubscriptions     PushSubscription[]
   sessions              Session[]
 }
 
@@ -59,7 +60,6 @@ model Therapist {
   workHours    TherapistWorkHours[]
   absences     TherapistAbsence[]
   reservations Reservation[]
-  absenceRequests AbsenceRequest[]
 }
 
 /// 施術ベッド。台数が変わってもデータ追加だけで対応できるようテーブルで持つ。
@@ -83,7 +83,8 @@ model TherapistWorkHours {
   @@index([therapistId])
 }
 
-/// 急な欠勤。登録すると重なる予約は自動キャンセルされる（app/actions/shifts.ts）。
+/// 欠勤（休み）。マッサージ師が自分で登録する（/therapist/absence）。
+/// 登録できるのは、その時間帯に予約が 1 件も無いときだけ（app/actions/therapist.ts の registerAbsence）。
 model TherapistAbsence {
   id          String    @id @default(cuid())
   therapist   Therapist @relation(fields: [therapistId], references: [id])
@@ -93,27 +94,36 @@ model TherapistAbsence {
   reason      String?
   createdBy   User      @relation(fields: [createdById], references: [id])
   createdById String
+  createdAt   DateTime  @default(now())
 
   @@index([therapistId, startAt])
 }
 
-/// マッサージ師からの休み申請（/therapist/absence）。承認するとここから TherapistAbsence が作られる想定だが、
-/// 管理者側の承認画面は今回未実装。申請の作成・履歴表示までがスコープ（design.md「/therapist 実装内容」参照）。
-model AbsenceRequest {
-  id          String    @id @default(cuid())
-  therapist   Therapist @relation(fields: [therapistId], references: [id])
-  therapistId String
-  date        DateTime // 対象日（日付のみ使う。時刻部分はダミー）
-  target      String // "day" | "am" | "pm"
-  reason      String?
-  status      String    @default("pending") // "pending" | "approved" | "rejected"
-  createdAt   DateTime  @default(now())
-  decidedAt   DateTime?
-  decidedBy   User?     @relation("AbsenceRequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-  decidedById String?
+/// アプリ内メールボックス（ヘッダーのアイコン + 未読件数バッジ）。
+/// 休みの登録・取消など「誰が・いつ・何をしたか」を、対象のロール（今は管理者）へ通知する。
+model MailboxMessage {
+  id        String    @id @default(cuid())
+  toUser    User      @relation(fields: [toUserId], references: [id], onDelete: Cascade)
+  toUserId  String
+  body      String
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
 
-  @@index([therapistId])
-  @@index([status])
+  @@index([toUserId])
+}
+
+/// 管理者のブラウザプッシュ通知の購読情報（Web Push API）。同じ人が複数端末・複数ブラウザで
+/// 購読できるよう、endpoint（ブラウザが発行する購読先 URL）ごとに 1 行持つ。
+model PushSubscription {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// 予約。押さえる枠は「施術時間 + 15 分」（+15 分は清掃・準備）。

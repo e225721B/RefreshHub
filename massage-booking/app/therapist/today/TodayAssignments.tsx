@@ -29,14 +29,18 @@ function AssignmentsTable({
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-black/10 dark:border-white/10">
-        <table className="w-full min-w-[640px] text-sm">
+        <table className="w-full text-sm sm:min-w-[640px]">
           <thead>
             <tr className="bg-rose-50/60 text-left text-rose-700/80 dark:bg-rose-500/10 dark:text-rose-200/80">
-              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">日程</th>
-              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">施術時間</th>
-              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">利用者</th>
-              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">ベッド</th>
-              <th className="border-b border-black/10 px-4 py-3 font-medium dark:border-white/10">詳細</th>
+              <th className="border-b border-black/10 px-3 py-3 font-medium sm:px-4 dark:border-white/10">日程</th>
+              <th className="hidden border-b border-black/10 px-4 py-3 font-medium sm:table-cell dark:border-white/10">
+                施術時間
+              </th>
+              <th className="border-b border-black/10 px-3 py-3 font-medium sm:px-4 dark:border-white/10">利用者</th>
+              <th className="hidden border-b border-black/10 px-4 py-3 font-medium sm:table-cell dark:border-white/10">
+                ベッド
+              </th>
+              <th className="border-b border-black/10 px-3 py-3 font-medium sm:px-4 dark:border-white/10">詳細</th>
             </tr>
           </thead>
           <tbody>
@@ -49,11 +53,11 @@ function AssignmentsTable({
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-b border-black/5 last:border-0 dark:border-white/5">
-                  <td className="px-4 py-3 tabular-nums">
+                  <td className="px-3 py-3 tabular-nums sm:px-4">
                     {formatShort(row.date)} {row.startTime}
                   </td>
-                  <td className="px-4 py-3">{row.treatmentMin} 分</td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 sm:table-cell">{row.treatmentMin} 分</td>
+                  <td className="px-3 py-3 sm:px-4">
                     <button
                       type="button"
                       onClick={() => onSelectUser(row.userId)}
@@ -62,8 +66,8 @@ function AssignmentsTable({
                       {row.userName}
                     </button>
                   </td>
-                  <td className="px-4 py-3">{row.bedName}</td>
-                  <td className="px-4 py-3">
+                  <td className="hidden px-4 py-3 sm:table-cell">{row.bedName}</td>
+                  <td className="px-3 py-3 sm:px-4">
                     <button
                       type="button"
                       onClick={() => onSelect(row.id)}
