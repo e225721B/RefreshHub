@@ -94,9 +94,18 @@ async function main() {
   await prisma.therapist.createMany({ data: THERAPISTS });
   await prisma.bed.createMany({ data: BEDS });
 
-  // 動作確認のため 1 名だけ「午前のみ」（月〜金 9:00〜14:00）を既定と違う勤務時間として登録する。
+  // 「午前のみ」（月〜金 9:00〜14:00）の勤務を、**女性の施術者**に登録する。
+  // 要件 R-2「午後は女性マッサージ師がいない（男性 3 人のみ）」／Q-3「午前は女性 1 名 + 男性 3 名、
+  // 午後は男性 3 名」をデータで表しているのがこの行。**女性だけを選んで絞り込むと午後は枠が出ない**。
   // 行が無い他の施術者は lib/business-hours.ts の既定（9:00〜14:00・15:00〜20:00）がそのまま使われる。
-  const AM_ONLY_THERAPIST_ID = "t2";
+  //
+  // id を直に書かず性別から引くのは、担当者の入れ替えで「午前のみ」が男性に付いてしまうのを防ぐため
+  // （実際、以前は男性の t2 に付いていて、女性だけを選んでも午後が予約できる状態になっていた）。
+  const femaleTherapist = THERAPISTS.find(
+    (t) => THERAPIST_USERS.find((u) => u.id === t.userId)?.gender === "female",
+  );
+  if (!femaleTherapist) throw new Error("女性の施術者が 1 人もいません（要件 Q-3 と矛盾します）");
+  const AM_ONLY_THERAPIST_ID = femaleTherapist.id;
   await prisma.therapistWorkHours.createMany({
     data: [1, 2, 3, 4, 5].map((dayOfWeek) => ({
       therapistId: AM_ONLY_THERAPIST_ID,
@@ -110,7 +119,9 @@ async function main() {
     `投入完了: 管理者 1 名 / マッサージ師 ${THERAPIST_USERS.length} 名 / 利用者 ${REGULAR_USERS.length} 名 / ベッド ${BEDS.length} 台`,
   );
   console.log(`全アカウント共通パスワード: ${SEED_PASSWORD}`);
-  console.log(`セラピスト ${AM_ONLY_THERAPIST_ID} は月〜金 9:00〜14:00 の「午前のみ」で登録済み`);
+  console.log(
+    `セラピスト ${AM_ONLY_THERAPIST_ID}（女性）は月〜金 9:00〜14:00 の「午前のみ」で登録済み。午後は男性のみ`,
+  );
 }
 
 main()
