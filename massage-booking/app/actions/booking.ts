@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
-import { hhmmOfLocal, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
+import { hhmmOfLocal, isStartPassed, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
   TREATMENT_OPTIONS,
@@ -11,11 +11,11 @@ import {
   resolveShiftsForDate,
   toHHMM,
   toMinutes,
-  type Gender,
   type Slot,
 } from "@/lib/slots";
 import { canUserCancel, USER_CANCEL_CUTOFF_HOURS } from "@/lib/cancellation";
 import { AuthError, requireLogin } from "@/lib/auth";
+import { SELECTABLE_THERAPIST_WHERE } from "@/lib/therapists";
 
 /** 入力値の検証。フォームは誰でも直接呼べるため、サーバ側で必ず確かめる。 */
 function isValidDate(date: string): boolean {
@@ -27,9 +27,13 @@ function isValidTime(time: string): boolean {
 function isValidTreatment(min: number): boolean {
   return (TREATMENT_OPTIONS as readonly number[]).includes(min);
 }
-function normalizeGenders(genders: string[] | undefined): Gender[] {
-  if (!genders) return [];
-  return genders.filter((g): g is Gender => g === "female" || g === "male");
+/**
+ * 絞り込みで受け取った施術者 id を整える（Issue #9）。
+ * `undefined`（絞り込みなし）と空配列（誰も選んでいない ＝ 0 件）は意味が違うので、区別して返す。
+ */
+function normalizeTherapistIds(therapistIds: string[] | undefined): string[] | undefined {
+  if (!therapistIds) return undefined;
+  return [...new Set(therapistIds.filter((id) => typeof id === "string" && id.length > 0))];
 }
 
 /** その日の 00:00 〜 翌日 00:00（ローカル時刻） */
@@ -54,10 +58,14 @@ export type WeekAvailability = Record<string, Record<number, Record<string, Slot
 
 export async function fetchWeekAvailability(
   mondayStr: string,
-  genders: string[],
+  /**
+   * 希望する施術者の id（Issue #9）。省略すれば絞り込みなし。
+   * 空配列は「1 人も選ばれていない」を表し、空き枠は 0 件になる。
+   */
+  therapistIds?: string[],
 ): Promise<WeekAvailability> {
   if (!isValidDate(mondayStr)) return {};
-  const normalized = normalizeGenders(genders);
+  const normalized = normalizeTherapistIds(therapistIds);
   const dates = weekdaysFrom(mondayStr);
 
   const weekStart = toDateTime(dates[0], "00:00");
@@ -65,10 +73,10 @@ export async function fetchWeekAvailability(
   weekEnd.setDate(weekEnd.getDate() + 1);
 
   const [therapists, workHours, absences, beds, reservations] = await Promise.all([
-    // Therapist.active は「受付中かどうか」、User.active は「アカウントが有効かどうか」の別の話。
-    // 無効化したアカウント（deleteUserAccount の「無効化」）が担当候補に残らないよう両方を見る
+    // 担当候補の条件は絞り込みの選択肢（lib/therapists.ts）と共有する。
+    // 無効化したアカウント（deleteUserAccount の「無効化」）が担当候補に残らないようにするため
     prisma.therapist.findMany({
-      where: { active: true, user: { active: true } },
+      where: SELECTABLE_THERAPIST_WHERE,
       include: { user: true },
     }),
     prisma.therapistWorkHours.findMany(),
@@ -85,6 +93,9 @@ export async function fetchWeekAvailability(
   const therapistSlots = therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender }));
 
   const result: WeekAvailability = {};
+  // 今日の分だけ「今より後の枠」に限る。過去の日はそもそも画面側で選べない
+  const now = new Date();
+  const todayStr = toDateString(now);
 
   for (const date of dates) {
     const { start, end } = dayRange(date);
@@ -107,7 +118,8 @@ export async function fetchWeekAvailability(
         therapists: therapistSlots,
         reservations: reservationWindows,
         treatmentMin,
-        genders: normalized,
+        therapistIds: normalized,
+        notBefore: date === todayStr ? hhmmOfLocal(now) : undefined,
       });
       const byTime: Record<string, Slot> = {};
       for (const slot of slots) byTime[slot.startTime] = slot;
@@ -148,6 +160,10 @@ export async function createReservation(input: {
   if (!isValidTime(input.startTime)) return { ok: false, message: "時刻が正しくありません" };
   if (!isValidTreatment(input.treatmentMin)) {
     return { ok: false, message: "施術時間が正しくありません" };
+  }
+  // 画面で灰色にしていても、リクエストは直接投げられる。過ぎた時間はここで必ず弾く
+  if (isStartPassed(input.date, input.startTime)) {
+    return { ok: false, message: "過ぎた時間は予約できません。表を更新します" };
   }
 
   const blockEndTime = toHHMM(toMinutes(input.startTime) + input.treatmentMin + CLEANUP_MIN);
