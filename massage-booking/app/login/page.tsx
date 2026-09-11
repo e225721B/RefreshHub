@@ -93,9 +93,6 @@ export default async function LoginPage({
           <h2 className="text-center text-xl font-bold tracking-tight text-stone-800 dark:text-stone-50">
             おかえりなさい
           </h2>
-          <p className="mt-2 text-center text-sm text-stone-500 dark:text-stone-400">
-            ログインすると予約画面に進みます
-          </p>
 
           <div className="mt-7">
             <LoginForm next={next} />
@@ -120,36 +117,6 @@ export default async function LoginPage({
             </li>
           ))}
         </ul>
-
-        {/* 動作確認用のアカウント */}
-        <div className="mt-5 rounded-2xl border border-white/60 bg-white/45 px-5 py-4 text-xs leading-relaxed text-stone-600 dark:border-white/10 dark:bg-white/[0.04] dark:text-stone-400">
-          <p className="mb-1.5 font-semibold text-stone-700 dark:text-stone-200">
-            動作確認用のアカウント
-          </p>
-          <p>
-            利用者{" "}
-            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
-              user1@example.com
-            </code>
-            {" / "}
-            管理者{" "}
-            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
-              admin@example.com
-            </code>
-            {" / "}
-            マッサージ師{" "}
-            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
-              therapist-a@example.com
-            </code>
-          </p>
-          <p className="mt-1">
-            パスワードは共通で{" "}
-            <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[11px] text-stone-700 dark:bg-white/10 dark:text-stone-200">
-              password1234
-            </code>
-            です。すべて仮のデータで、実在の氏名・メールアドレスは含みません。
-          </p>
-        </div>
       </div>
     </div>
   );

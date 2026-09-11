@@ -65,15 +65,26 @@ type Selection = { date: string; anchorRow: number; hoverRow: number };
 export function WeekSchedule({
   userName,
   therapists,
+  initialTherapistIds,
 }: {
   userName: string;
   /** 絞り込みに出す施術者。担当候補になる人だけが渡ってくる（lib/therapists.ts） */
   therapists: SelectableTherapist[];
+  /**
+   * 最初に選んでおく施術者。紹介画面（/therapists）から「この施術者で予約する」で来たときに
+   * その人だけが入ってくる。省略したら今までどおり全員を選んだ状態で始める。
+   */
+  initialTherapistIds?: string[];
 }) {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   // 絞り込みの条件はこれ 1 つ（Issue #9）。性別のチェックは「そのグループをまとめて ON/OFF」する操作で、
   // 条件そのものは持たない。こうしないと性別と施術者で同じことを二重に管理することになる。
-  const [therapistIds, setTherapistIds] = useState<string[]>(() => therapists.map((t) => t.id));
+  const [therapistIds, setTherapistIds] = useState<string[]>(() =>
+    // 並び順は常に `therapists` に揃える（applyTherapistFilter と同じ考え方）
+    initialTherapistIds && initialTherapistIds.length > 0
+      ? therapists.filter((t) => initialTherapistIds.includes(t.id)).map((t) => t.id)
+      : therapists.map((t) => t.id),
+  );
   const [availability, setAvailability] = useState<WeekAvailability>({});
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -148,6 +159,21 @@ export function WeekSchedule({
       (g) => g.members.length > 0,
     );
   }, [therapists]);
+
+  /**
+   * 紹介画面から特定の施術者を指定して来たときに、その人だけに絞られていると画面で知らせるための名前。
+   * 利用者が自分でチェックを足したり外したりしたら、指定どおりではなくなるので消える。
+   * 施術者がその 1 人しかいない場合は「絞り込んでいる」ことに意味がないので出さない。
+   */
+  const focusedNames = useMemo(() => {
+    if (!initialTherapistIds || initialTherapistIds.length === 0) return null;
+    if (therapists.length <= initialTherapistIds.length) return null;
+    const stillFocused =
+      therapistIds.length === initialTherapistIds.length &&
+      initialTherapistIds.every((id) => therapistIds.includes(id));
+    if (!stillFocused) return null;
+    return therapists.filter((t) => initialTherapistIds.includes(t.id)).map((t) => t.name);
+  }, [initialTherapistIds, therapistIds, therapists]);
 
   const reload = useCallback(async () => {
     const [nextAvailability, booking] = await Promise.all([
@@ -392,6 +418,22 @@ export function WeekSchedule({
           )}
         </fieldset>
       </div>
+
+      {focusedNames && focusedNames.length > 0 && (
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+          <span>
+            <strong>{focusedNames.join("・")}</strong>
+            さんの空き枠だけを表示しています。
+          </span>
+          <button
+            type="button"
+            onClick={() => applyTherapistFilter(new Set(therapists.map((t) => t.id)))}
+            className="underline underline-offset-2 hover:no-underline"
+          >
+            全員の空き枠を見る
+          </button>
+        </p>
+      )}
 
       <p className="text-sm text-black/70 dark:text-white/70">
         {isTouchDevice ? (

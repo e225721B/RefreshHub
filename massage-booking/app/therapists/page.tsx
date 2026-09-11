@@ -1,8 +1,10 @@
 import Image from "next/image";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { GENDER_LABEL, isGender } from "@/lib/roles";
 import { summarizeWeeklySchedule } from "@/lib/schedule-summary";
+import { therapistInitial, therapistPhotoUrl } from "@/lib/therapist-photo";
 import { getCurrentUserForRequest } from "@/lib/session";
 import { TopNav } from "../TopNav";
 
@@ -31,6 +33,7 @@ export default async function TherapistsPage() {
         <div className="grid gap-6 sm:grid-cols-2">
           {therapists.map((t) => {
             const gender = isGender(t.user.gender) ? t.user.gender : null;
+            const photo = therapistPhotoUrl(t.id);
             const tags = t.tags
               .split(",")
               .map((tag) => tag.trim())
@@ -42,13 +45,23 @@ export default async function TherapistsPage() {
                 className="flex gap-5 rounded-2xl border border-rose-100 bg-white p-6 shadow-sm dark:border-rose-500/20 dark:bg-white/[.04]"
               >
                 <div className="relative size-28 shrink-0 overflow-hidden rounded-full border border-rose-100 dark:border-rose-500/20">
-                  <Image
-                    src={`https://picsum.photos/seed/${t.id}/200/200`}
-                    alt={`${t.user.name}の写真`}
-                    fill
-                    sizes="112px"
-                    className="object-cover"
-                  />
+                  {photo ? (
+                    <Image
+                      src={photo}
+                      alt={`${t.user.name}の写真`}
+                      fill
+                      sizes="112px"
+                      className="object-cover"
+                    />
+                  ) : (
+                    /* 写真が無い人。別人の顔を出さず、頭文字のアイコンにする */
+                    <div
+                      className="flex size-full items-center justify-center bg-rose-50 text-3xl font-bold text-rose-400 dark:bg-rose-500/10 dark:text-rose-300/70"
+                      aria-hidden="true"
+                    >
+                      {therapistInitial(t.user.name)}
+                    </div>
+                  )}
                 </div>
 
                 <div className="min-w-0 flex-1 space-y-2">
@@ -82,6 +95,15 @@ export default async function TherapistsPage() {
                   <p className="text-xs text-black/50 dark:text-white/50">
                     {summarizeWeeklySchedule(t.workHours)}
                   </p>
+
+                  {/* この人を選んだ状態で予約画面へ。予約画面はこの ID で空き枠を絞り込む */}
+                  <Link
+                    href={`/booking?therapist=${encodeURIComponent(t.id)}`}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-rose-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-rose-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-500"
+                  >
+                    {t.user.name}さんの空き枠を見る
+                    <span aria-hidden="true">→</span>
+                  </Link>
                 </div>
               </article>
             );
