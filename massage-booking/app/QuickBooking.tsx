@@ -7,6 +7,7 @@ import { formatShort } from "@/lib/dates";
 import { RESERVATION_UPDATED_EVENT } from "@/lib/events";
 import { toHHMM, toMinutes } from "@/lib/slots";
 import { FlashToast } from "./FlashToast";
+import { GuideModal } from "./GuideModal";
 import { useFlashMessage } from "./useFlashMessage";
 
 const MINUTES_OPTIONS = [15, 30, 60] as const;
@@ -160,9 +161,15 @@ export function QuickBooking({ userName }: { userName: string }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white/70 px-5 py-4 text-sm dark:bg-white/[.03]">
-        <p className="text-black/70 dark:text-white/70">
-          明日以降の予約や、時間・施術者をもっと細かく選びたいときは予約ページからどうぞ。
-        </p>
+        <div className="space-y-1">
+          <p className="text-black/70 dark:text-white/70">
+            明日以降の予約や、時間・施術者をもっと細かく選びたいときは予約ページからどうぞ。
+          </p>
+          <GuideModal
+            className="font-medium text-rose-700 underline underline-offset-2 hover:text-rose-800 dark:text-rose-300 dark:hover:text-rose-200"
+            label="施術時間・利用できる時間・ベッド数など、マッサージ室について詳しく見る"
+          />
+        </div>
         <Link
           href="/booking"
           className="shrink-0 rounded-full border border-rose-300 bg-white px-4 py-2 font-semibold text-rose-700 shadow-sm hover:bg-rose-50 dark:border-rose-400/40 dark:bg-transparent dark:text-rose-300 dark:hover:bg-rose-500/10"
