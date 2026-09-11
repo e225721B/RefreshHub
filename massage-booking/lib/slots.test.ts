@@ -454,20 +454,82 @@ test("担当時間が並んだら、少ない方が選ばれる", () => {
   assert.equal(eleven.therapistId, "t2", "担当 30 分の t2 が、60 分の t3・75 分の t1 より先に選ばれる");
 });
 
-test("性別で絞り込んでいるときも、その中で偏りをならす", () => {
+test("2 人に絞り込んだとき、担当時間が少ない方が先に選ばれる", () => {
+  // t2 はすでに 60 分ぶん担当している。t3 はまだ 0 分。
+  // 絞り込みで t1 が外れていても、残った 2 人の間で「少ない方」が優先される
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [{ bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "10:00" }],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  const afterTen = slots.filter((s) => toMinutes(s.startTime) >= toMinutes("10:00"));
+  assert.ok(afterTen.length >= 3, "10 時以降の枠があること");
+  assert.deepEqual(
+    [...new Set(afterTen.slice(0, 3).map((s) => s.therapistId))],
+    ["t3"],
+    "t2 が 60 分・t3 が 0 分なので、t2 が空いていても t3 に割り当たる",
+  );
+});
+
+test("絞り込んだ 2 人の担当時間が並んだら、そこからは交互に回る", () => {
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "09:30" },
+      { bedId: "b2", therapistId: "t3", startTime: "09:00", blockEndTime: "09:30" },
+    ],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  // 9:15 は 2 人とも 9:30 まで埋まっているため枠が出ない。9:30 から交互になる
+  const afterNineThirty = slots.filter((s) => toMinutes(s.startTime) >= toMinutes("09:30"));
+  assert.deepEqual(
+    afterNineThirty.slice(0, 4).map((s) => s.therapistId),
+    ["t2", "t3", "t2", "t3"],
+    "同点なら時間帯ごとに順番がずれ、片方に寄らない",
+  );
+});
+
+test("絞り込んだ相手が埋まっていれば、担当時間が多い方でも割り当たる", () => {
+  // 「少ない方を優先」は空いている人の中での話で、埋まっている人には割り当てない
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "10:00" },
+      { bedId: "b2", therapistId: "t3", startTime: "10:00", blockEndTime: "10:30" },
+    ],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  const ten = slots.find((s) => s.startTime === "10:00");
+  assert.ok(ten, "10:00 の枠があること");
+  assert.equal(ten.therapistId, "t2", "t3 はその時間が埋まっているので、担当 60 分の t2 に割り当たる");
+});
+
+test("施術者を絞り込んでいるときも、その中で偏りをならす", () => {
   const slots = getAvailableSlots({
     shifts: threeShifts,
     beds,
     therapists: threeTherapists,
     reservations: [],
     treatmentMin: 15,
-    genders: ["male"],
+    therapistIds: ["t2", "t3"],
   });
 
   assert.deepEqual(
     slots.slice(0, 3).map((s) => s.therapistId),
     ["t2", "t3", "t2"],
-    "男性 2 人（t2 / t3）の間で交互に回る。女性の t1 は選ばれない",
+    "選ばれた 2 人（t2 / t3）の間で交互に回る。チェックされていない t1 は選ばれない",
   );
 });
 

@@ -155,21 +155,20 @@ export function getAvailableSlots(params: {
   const minutesByTherapist = assignedMinutes(reservations);
   const startTimes = [...startCandidates].sort((a, b) => a - b);
 
-  for (const start of [...startCandidates].sort((a, b) => a - b)) {
+  for (const [index, start] of startTimes.entries()) {
     // もう過ぎている開始時刻は候補にしない（今日の午前など）
     if (earliestStart !== null && start <= earliestStart) continue;
     const end = start + blockMin;
 
     // この時間帯に勤務していて、かつ予約が入っていないマッサージ師。
     // 希望する施術者が指定されていれば、その人たちの中だけから選ぶ。
-    // 希望を無視して「最初に空いている人」を割り当てると、
-    // 午前は常に同じ人が選ばれ、他の性別で絞り込んだとき 0 件になってしまう。
+    // 先に割り当ててから絞り込むと、別の人が選ばれた時刻が候補ごと消えてしまう。
     //
     // 候補の並び順は shifts ではなく therapists に合わせる。
     // shifts は「勤務時間帯」の一覧で、1 人が午前・午後と 2 行に分かれることがあり、
     // 並び順が人の順番を表さないため（順番をずらす pickTherapist が正しく回らなくなる）。
     const candidates = therapists.filter((t) => {
-      if (genderFilter && !genderFilter.has(t.gender)) return false;
+      if (therapistFilter && !therapistFilter.has(t.id)) return false;
       const onShift = shifts.some(
         (s) =>
           s.therapistId === t.id &&
