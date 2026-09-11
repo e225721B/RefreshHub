@@ -33,11 +33,23 @@ const GRID_END = "20:00";
 /** ドラッグで選べる最大マス数。施術は最大 45 分（15 分 × 3 マス）。 */
 const MAX_CELLS = 3;
 
+// 表の列の幅（rem）。時刻列と日付列。
+const TIME_COL_REM = 4;
+const DAY_COL_REM = 6.5;
+
 // 「あなたの予約」の時間帯。青だと他の予約系の色（rose 系）から浮くため、
 // rose の細い斜め線パターンにして「選べないが、他とは違う」ことを示す。
-const MY_BOOKED_STRIPE =
-  "bg-[repeating-linear-gradient(45deg,#fda4af_0px,#fda4af_2px,#fecdd3_2px,#fecdd3_14px)] " +
-  "dark:bg-[repeating-linear-gradient(45deg,#881337_0px,#881337_2px,#4c0519_2px,#4c0519_14px)]";
+//
+// Tailwind の bg-[...] にすると、ビルド時の CSS 圧縮が同色の連続する色停止点
+// （例: #fda4af が 0px と 2px の 2 箇所）を "色 開始位置 終了位置" という
+// 新しい書き方 1 つにまとめてしまう。この書き方に対応していない Safari では
+// 縞模様の背景が丸ごと描画されず、真っ白に見える（実機のスマホで確認）。
+// そのため、この背景だけは Tailwind のクラスではなく、圧縮されない
+// インラインスタイルとして直接指定する。
+const MY_BOOKED_STRIPE_LIGHT =
+  "repeating-linear-gradient(45deg, #fda4af 0px, #fda4af 2px, #fecdd3 2px, #fecdd3 14px)";
+const MY_BOOKED_STRIPE_DARK =
+  "repeating-linear-gradient(45deg, #881337 0px, #881337 2px, #4c0519 2px, #4c0519 14px)";
 
 function timeRows(): string[] {
   const rows: string[] = [];
@@ -79,6 +91,44 @@ export function WeekSchedule({
   // 今週すでに持っている自分の予約（AC-19、週1回まで）。null ならこの週はまだ選べる
   const [weekBooking, setWeekBooking] = useState<WeekBooking | null>(null);
   const weekLocked = weekBooking !== null;
+  // タッチ操作の端末かどうか。マウスの「ドラッグして選ぶ」は指では扱えない
+  // （指でなぞっても、隣のマスへの mouseenter は発生せずページのスクロールになる）ため、
+  // タッチ端末では「開始のマスをタップ→終了のマスをタップ」の 2 タップ方式に切り替える。
+  // サーバー側では判定できないため、初期値は false にしてマウント後に判定する（ハイドレーション不一致を避ける）。
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    // マウント直後にだけ同期的に設定する（`now` と同じ意図的な例外）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsTouchDevice(navigator.maxTouchPoints > 0 || "ontouchstart" in window);
+  }, []);
+
+  // 「あなたの予約」の縞模様（インラインスタイル）をライト/ダークどちらで塗るか。
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsDarkMode(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsDarkMode(e.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  // 表の幅の決め方を PC と狭い画面で分けるための判定（Tailwind の sm と同じ 640px 境界）。
+  // 狭い画面だけ「列の合計とぴったり同じ幅」にして Safari の空欄を避け、
+  // PC では今までどおり幅いっぱいに伸ばす（伸ばした分は自動で列に配られる。ここは PC の
+  // ブラウザでは問題が出ていないため、狭い画面のときだけ挙動を変える）。
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 639px)");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsNarrowViewport(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
 
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
@@ -207,6 +257,22 @@ export function WeekSchedule({
   }
 
   /**
+   * タッチ端末用。「開始のマスをタップ→終了のマスをタップ」の 2 タップで選ぶ。
+   * 同じ日をタップし直した場合は終了マスの指定として扱い、別の日（または未選択）をタップした場合は
+   * そこを新しい開始マスにする。やり直したいときは既存の「取り消す」ボタンで一度リセットしてもらう。
+   */
+  function handleCellTap(date: string, rowIndex: number) {
+    if (saving || loading) return;
+    if (selection && selection.date === date) {
+      setSelection({ ...selection, hoverRow: rowIndex });
+      return;
+    }
+    if (!isCellOpen(date, rows[rowIndex])) return;
+    clearMessage();
+    setSelection({ date, anchorRow: rowIndex, hoverRow: rowIndex });
+  }
+
+  /**
    * 絞り込みを更新する。並び順は `therapists` の順に揃える。
    * 順番がチェックした順に変わると、中身が同じでも別の条件として読み込み直してしまうため。
    */
@@ -328,7 +394,11 @@ export function WeekSchedule({
       </div>
 
       <p className="text-sm text-black/70 dark:text-white/70">
-        <strong>表を縦にドラッグして施術時間を選びます。</strong>
+        {isTouchDevice ? (
+          <strong>開始のマスをタップし、続けて終了のマスをタップして施術時間を選びます。</strong>
+        ) : (
+          <strong>表を縦にドラッグして施術時間を選びます。</strong>
+        )}
         1 マス = 15 分、最大 3 マス（45 分）まで。
         チェックした施術者のうち空いている人と、ベッドが自動で割り当てられます。
       </p>
@@ -454,30 +524,61 @@ export function WeekSchedule({
         </span>
         {weekLocked && (
           <span className="flex items-center gap-1.5">
-            <span className={`inline-block size-3 rounded-sm ${MY_BOOKED_STRIPE}`} />
+            <span
+              className="inline-block size-3 rounded-sm"
+              style={{ backgroundImage: isDarkMode ? MY_BOOKED_STRIPE_DARK : MY_BOOKED_STRIPE_LIGHT }}
+            />
             あなたの予約
           </span>
         )}
       </div>
 
-      {/* 週のスケジュール表 */}
+      {/*
+        狭い画面では曜日の列が入り切らないので横スクロールさせる。
+        そのとき時刻列も一緒に流れると「今どの行を見ているか」が分からなくなるため、
+        管理者の予約状況画面と同じく時刻列だけ sticky left-0 で左端に貼り付ける。
+        sticky + border-collapse は狭い画面で罫線がずれる（枠線が表側に属し、固定した
+        セルと一緒に動かない）ため、狭い画面だけ border-separate に切り替える。
+
+        表と列の幅（width / table-layout）は、Tailwind のクラスではなく style 属性で
+        直接指定している。当初は狭い画面でも PC と同じ「幅は 100%、ただし最低 640px」
+        （min-width）にしていたが、列の合計（時刻 4rem + 日付 6.5rem × 5 列 = 36.5rem）より
+        広い分を表が自動で列に配り直す前提のところ、実機の Safari ではこの「配り直し」が
+        効かず、余った分がそのまま右側の空欄になった（Tailwind のクラスに戻しても、
+        min-width だけにしても、table-fixed にしても再現した）。
+
+        直し方は、狭い画面だけ表の幅を「配り直しが必要な余りが出ない値」＝列の合計と
+        ぴったり同じ値にすること（`isNarrowViewport`）。PC では今までどおり幅いっぱいに
+        伸ばす（＝ 100%）。PC のブラウザでは配り直し自体に問題が出ていないため、
+        表を画面幅いっぱいに大きく見せる従来の見た目を PC では維持できる。
+      */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse select-none text-sm">
+        <table
+          style={{
+            width: isNarrowViewport ? `${TIME_COL_REM + DAY_COL_REM * days.length}rem` : "100%",
+            tableLayout: "fixed",
+          }}
+          className="border-collapse select-none text-sm max-sm:border-separate max-sm:border-spacing-0 max-sm:border-t max-sm:border-l max-sm:border-black/10 max-sm:dark:border-white/15"
+        >
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 w-16 border border-black/10 bg-background px-2 py-2 text-left dark:border-white/15">
+              <th
+                style={{ width: `${TIME_COL_REM}rem` }}
+                className="sticky left-0 z-10 border border-black/10 bg-background px-2 py-2 text-left shadow-[1px_0_0_var(--chart-grid)] dark:border-white/15 max-sm:border-t-0 max-sm:border-l-0"
+              >
                 時刻
               </th>
               {days.map((date) => (
                 <th
                   key={date}
-                  className={`border border-black/10 px-2 py-2 text-center dark:border-white/15 ${
+                  style={{ width: `${DAY_COL_REM}rem` }}
+                  className={`border border-black/10 px-2 py-2 text-center dark:border-white/15 max-sm:border-t-0 max-sm:border-l-0 ${
                     date === today ? "border-b-2 border-b-rose-500" : ""
                   }`}
                 >
                   {formatShort(date)}
                   {date === today && (
-                    <span className="ml-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
+                    <span className="ml-1 inline-block whitespace-nowrap rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
                       今日
                     </span>
                   )}
@@ -488,7 +589,7 @@ export function WeekSchedule({
           <tbody>
             {rows.map((time, rowIndex) => (
               <tr key={time}>
-                <th className="sticky left-0 z-10 border border-black/10 bg-background px-2 py-1 text-left font-normal tabular-nums dark:border-white/15">
+                <th className="sticky left-0 z-10 border border-black/10 bg-background px-2 py-1 text-left font-normal tabular-nums shadow-[1px_0_0_var(--chart-grid)] dark:border-white/15 max-sm:border-t-0 max-sm:border-l-0">
                   {time.endsWith(":00") ? time : ""}
                 </th>
                 {days.map((date) => {
@@ -499,6 +600,7 @@ export function WeekSchedule({
                   const myBooked = isMyBookedCell(date, time);
 
                   let tone = "bg-black/15 dark:bg-white/25"; // 空きなし
+                  let stripeStyle: React.CSSProperties | undefined;
                   if (inSelection) {
                     tone = selectionValid
                       ? "bg-rose-500"
@@ -506,14 +608,24 @@ export function WeekSchedule({
                   } else if (open) {
                     tone = "bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/20 dark:hover:bg-rose-400/35";
                   } else if (myBooked) {
-                    tone = MY_BOOKED_STRIPE;
+                    // Tailwind の bg-[...] だと縞模様が Safari で真っ白になるため、
+                    // ここだけ圧縮されないインラインスタイルで塗る（MY_BOOKED_STRIPE_* 参照）。
+                    tone = "";
+                    stripeStyle = { backgroundImage: isDarkMode ? MY_BOOKED_STRIPE_DARK : MY_BOOKED_STRIPE_LIGHT };
                   }
 
                   return (
                     <td
                       key={date}
-                      onMouseDown={() => startDrag(date, rowIndex)}
-                      onMouseEnter={() => extendDrag(date, rowIndex)}
+                      onMouseDown={() => {
+                        if (!isTouchDevice) startDrag(date, rowIndex);
+                      }}
+                      onMouseEnter={() => {
+                        if (!isTouchDevice) extendDrag(date, rowIndex);
+                      }}
+                      onClick={() => {
+                        if (isTouchDevice) handleCellTap(date, rowIndex);
+                      }}
                       title={
                         open
                           ? `${formatShort(date)} ${time} から。ドラッグで長さを変えられます`
@@ -523,7 +635,8 @@ export function WeekSchedule({
                               ? "過ぎた時間です"
                               : "空きがありません"
                       }
-                      className={`h-7 border border-black/10 p-0 dark:border-white/15 ${tone} ${
+                      style={stripeStyle}
+                      className={`h-7 border border-black/10 p-0 max-sm:border-t-0 max-sm:border-l-0 dark:border-white/15 ${tone} ${
                         open ? "cursor-pointer" : "cursor-not-allowed"
                       }`}
                     >
