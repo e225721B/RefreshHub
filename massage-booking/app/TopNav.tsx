@@ -4,18 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import type { SessionUser } from "@/lib/session";
+import { HEADER_BAR, NAV_LINK, NAV_LINK_ACTIVE } from "./navStyles";
 import { UserBar } from "./UserBar";
 
-const NAV_LINK =
-  "border-b-2 border-transparent pb-0.5 text-sm text-black/70 hover:text-rose-600 dark:text-white/70 dark:hover:text-rose-300";
-const NAV_LINK_ACTIVE = "border-rose-500 font-semibold text-rose-600 dark:text-rose-300";
 // メニューを開いたときの縦並び用。下線ではなく背景で選択中を示す（横一列の下線は縦並びだと分かりにくいため）
 const MENU_LINK =
   "block rounded-lg px-3 py-2 text-sm text-black/70 hover:bg-black/[.04] dark:text-white/70 dark:hover:bg-white/10";
 const MENU_LINK_ACTIVE = "bg-rose-500/10 font-semibold text-rose-600 dark:text-rose-300";
 
 /**
- * ページ共通のヘッダー。ピンク系のグラデーションで統一する。
+ * 利用者向け画面（トップ・予約する・マッサージ師）専用のヘッダー。ピンク系のグラデーションで統一する。
  *
  * 狭い画面ではタイトル＋ハンバーガーボタンの 1 行だけにし、リンク・ログイン中の人・
  * ログアウトはボタンを押したときに下へ開く縦並びのメニューにまとめる
@@ -50,7 +48,7 @@ export function TopNav({ user }: { user: SessionUser }) {
   ];
 
   return (
-    <div className="border-b border-rose-200/60 bg-gradient-to-r from-rose-100 via-rose-50 to-orange-50 dark:border-rose-500/20 dark:from-rose-950/40 dark:via-rose-950/20 dark:to-orange-950/20">
+    <div className={HEADER_BAR}>
       <div className="mx-auto max-w-5xl px-6 py-4">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm font-bold text-rose-700 dark:text-rose-300">マッサージ室の予約</span>
