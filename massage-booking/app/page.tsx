@@ -22,7 +22,7 @@ export default async function Home({
   return (
     <>
       <TopNav user={user} />
-      <main className="mx-auto max-w-5xl space-y-10 px-6 py-10">
+      <main className="mx-auto w-full max-w-5xl space-y-10 px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
         {denied === "admin" && (
           <p className="rounded border border-red-600/30 bg-red-600/10 px-4 py-3 text-sm text-red-800 dark:text-red-300">
             予約状況の画面は管理者だけが開けます。
