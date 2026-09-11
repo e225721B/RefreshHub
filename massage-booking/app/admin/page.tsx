@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
-import { UserBar } from "../UserBar";
+import { getCurrentUserForRequest } from "@/lib/session";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
+import { MailboxButton } from "../MailboxButton";
+import { PushNotificationButton } from "../PushNotificationButton";
 import { AddUserDialog } from "./AddUserDialog";
-import { formatShort, hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
+import { AdminHeader } from "./AdminHeader";
+import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
 import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
 
@@ -44,9 +47,10 @@ export default async function AdminPage({
 }) {
   const params = await searchParams;
   // 予約状況は個人単位の利用実績にあたるため、管理者だけが開ける（要件 Q-7 / F-8）
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const date =
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayString();
@@ -91,37 +95,40 @@ export default async function AdminPage({
   const usedSlots = blocks.reduce((sum, b) => sum + b.slots, 0);
   const usageRate = capacity === 0 ? 0 : Math.round((usedSlots / capacity) * 100);
 
-  const isToday = date === todayString();
-
+  // w-full は狭い画面だけ。body が flex で main が mx-auto のため、main は「中身の最大幅」に
+  // 合わせて広がろうとする。その結果、表の min-w が overflow-x-auto の外へ漏れて
+  // **ページ全体が画面幅より広くなり、ヘッダーやボタンが画面の外に出る**
+  // （390px の画面で main が 544px になっていた）。w-full で幅を画面に固定し、
+  // はみ出しは表の中だけで起こるようにする。
+  // sm 以上は従来どおり w-auto に戻す（PC では main の幅が変わってしまうため）。
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">予約状況</h1>
-          <p className="mt-1 text-sm text-black/60 dark:text-white/60">
-            {isToday
-              ? "今日、みんながひと息ついている様子です。"
-              : `${formatShort(date)} の予約の入り方です。`}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-4">
-          <Link href="/admin/users" className="text-sm underline underline-offset-4">
-            ユーザー管理
-          </Link>
-          <UserBar user={user} />
-        </div>
-      </header>
+    <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
+      <AdminHeader
+        title="予約状況"
+        current="/admin"
+        user={user}
+        extraLinks={[{ href: "/therapist", label: "マッサージ師向け画面を見る" }]}
+        actions={
+          <>
+            <PushNotificationButton />
+            <MailboxButton initialUnreadCount={unreadMailboxCount} />
+          </>
+        }
+      />
 
       {/* スケジュール表とは別に、ユーザーの追加をここから行う（AC-17） */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-5 py-4 dark:border-white/10 dark:bg-white/5">
+      <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-4 py-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-5 dark:border-white/10 dark:bg-white/5">
         <div>
           <p className="text-sm font-semibold text-stone-800 dark:text-stone-100">ユーザーの登録</p>
           <p className="mt-1 text-sm text-black/60 dark:text-white/60">
             利用者・マッサージ師・管理者のアカウントは、自己登録ではなく管理者が作ります。
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <Link href="/admin/users" className="text-sm underline underline-offset-4">
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <Link
+            href="/admin/users"
+            className="text-sm underline underline-offset-4 max-sm:order-2 max-sm:text-center"
+          >
             登録済みの一覧
           </Link>
           <AddUserDialog />
@@ -129,15 +136,17 @@ export default async function AdminPage({
       </div>
 
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <form className="flex items-end gap-3" action="/admin">
-            <label className="flex flex-col gap-1.5 text-sm">
+        <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto">
+          <form className="flex flex-1 items-end gap-3" action="/admin">
+            <label className="flex flex-1 flex-col gap-1.5 text-sm sm:flex-none">
               <span className="font-medium">日付</span>
+              {/* スマートフォンでは 16px 未満の入力欄にフォーカスすると画面が拡大されるため、
+                  狭い画面だけ text-base（16px）にする。以降の入力欄も同じ理由 */}
               <input
                 type="date"
                 name="date"
                 defaultValue={date}
-                className="rounded-2xl border border-rose-200/70 bg-white px-4 py-2.5 text-sm text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
+                className="w-full rounded-2xl border border-rose-200/70 bg-white px-4 py-2.5 text-base text-stone-800 shadow-sm focus:border-rose-300 focus:outline-none focus:ring-4 focus:ring-rose-200/50 sm:w-auto sm:text-sm dark:border-white/15 dark:bg-white/5 dark:text-stone-100"
               />
             </label>
             <button
@@ -149,16 +158,16 @@ export default async function AdminPage({
           </form>
 
           {/* 1 日ずつ動かす。カレンダーを開かずに前後を見られるように */}
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Link
               href={`/admin?date=${shiftDate(date, -1)}`}
-              className="rounded-full border border-black/15 px-4 py-2.5 text-sm transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
+              className="flex-1 rounded-full border border-black/15 px-4 py-2.5 text-center text-sm transition hover:bg-black/[.04] sm:flex-none dark:border-white/20 dark:hover:bg-white/10"
             >
               ◁ 前日
             </Link>
             <Link
               href={`/admin?date=${shiftDate(date, 1)}`}
-              className="rounded-full border border-black/15 px-4 py-2.5 text-sm transition hover:bg-black/[.04] dark:border-white/20 dark:hover:bg-white/10"
+              className="flex-1 rounded-full border border-black/15 px-4 py-2.5 text-center text-sm transition hover:bg-black/[.04] sm:flex-none dark:border-white/20 dark:hover:bg-white/10"
             >
               翌日 ▷
             </Link>
@@ -172,17 +181,22 @@ export default async function AdminPage({
         </p>
       </div>
 
+      {/*
+        狭い画面ではベッドの列が入り切らないので横スクロールさせる。
+        そのとき時刻列も一緒に流れると「今どの行を見ているか」が分からなくなるため、
+        時刻列だけ sticky left-0 で左端に貼り付ける（背景を塗らないと下の行が透けて重なる）。
+      */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full min-w-[32rem] border-collapse text-sm max-sm:border-separate max-sm:border-spacing-0 max-sm:border-t max-sm:border-l max-sm:border-black/10 max-sm:dark:border-white/15">
           <thead>
             <tr>
-              <th className="w-20 border border-black/10 px-3 py-2 text-left font-medium text-black/60 dark:border-white/15 dark:text-white/60">
+              <th className="sticky left-0 z-20 w-16 border border-black/10 bg-background px-2 py-2 shadow-[1px_0_0_var(--chart-grid)] text-left font-medium text-black/60 sm:w-20 sm:px-3 dark:border-white/15 dark:text-white/60 max-sm:border-t-0 max-sm:border-l-0">
                 時刻
               </th>
               {beds.map((bed) => (
                 <th
                   key={bed.id}
-                  className="border border-black/10 px-3 py-2 text-left font-medium text-black/60 dark:border-white/15 dark:text-white/60"
+                  className="border border-black/10 px-2 py-2 text-left font-medium text-black/60 sm:px-3 dark:border-white/15 dark:text-white/60 max-sm:border-t-0 max-sm:border-l-0"
                 >
                   {bed.name}
                 </th>
@@ -194,7 +208,7 @@ export default async function AdminPage({
               const rest = breakAt(minute);
               return (
                 <tr key={minute}>
-                  <th className="border border-black/10 px-3 py-1.5 text-left font-normal tabular-nums text-black/60 dark:border-white/15 dark:text-white/60">
+                  <th className="sticky left-0 z-10 border border-black/10 bg-background px-2 py-1.5 shadow-[1px_0_0_var(--chart-grid)] text-left font-normal tabular-nums text-black/60 sm:px-3 dark:border-white/15 dark:text-white/60 max-sm:border-t-0 max-sm:border-l-0">
                     {toHHMM(minute)}
                   </th>
 
@@ -204,7 +218,7 @@ export default async function AdminPage({
                       <td
                         colSpan={beds.length}
                         rowSpan={(rest.end - rest.start) / STEP_MIN}
-                        className="border border-black/10 bg-black/[.06] px-3 py-1.5 align-top text-black/50 dark:border-white/15 dark:bg-white/10 dark:text-white/50"
+                        className="border border-black/10 bg-black/[.06] px-2 py-1.5 align-top text-black/50 sm:px-3 dark:border-white/15 dark:bg-white/10 dark:text-white/50 max-sm:border-t-0 max-sm:border-l-0"
                       >
                         休憩（{toHHMM(rest.start)}〜{toHHMM(rest.end)}）
                       </td>
@@ -218,15 +232,15 @@ export default async function AdminPage({
                           <td
                             key={bed.id}
                             rowSpan={block.slots}
-                            className="border border-rose-200 bg-rose-100/70 px-3 py-1.5 align-top dark:border-rose-400/30 dark:bg-rose-500/15"
+                            className="border border-rose-200 bg-rose-100/70 px-2 py-1.5 align-top sm:px-3 dark:border-rose-400/30 dark:bg-rose-500/15 max-sm:border-t-0 max-sm:border-l-0"
                           >
-                            <strong className="text-stone-800 dark:text-stone-100">
+                            {/* 列が狭いと 1 行では折り返して読みにくいので、名前と担当を段に分ける */}
+                            <div className="font-semibold text-stone-800 dark:text-stone-100">
                               {r.user.name}
-                            </strong>
-                            <span className="text-black/60 dark:text-white/60">
-                              {" "}
-                              / {r.therapist.user.name} / 施術 {r.treatmentMin} 分
-                            </span>
+                            </div>
+                            <div className="text-xs leading-snug text-black/60 dark:text-white/60">
+                              {r.therapist.user.name} ／ 施術 {r.treatmentMin} 分
+                            </div>
                           </td>
                         );
                       }
@@ -235,7 +249,7 @@ export default async function AdminPage({
                       return (
                         <td
                           key={bed.id}
-                          className="border border-black/10 px-3 py-1.5 dark:border-white/15"
+                          className="border border-black/10 px-2 py-1.5 sm:px-3 dark:border-white/15 max-sm:border-t-0 max-sm:border-l-0"
                         />
                       );
                     })
@@ -246,11 +260,6 @@ export default async function AdminPage({
           </tbody>
         </table>
       </div>
-
-      <p className="mt-3 text-xs leading-relaxed text-black/50 dark:text-white/50">
-        稼働率は「予約が押さえた枠 ÷（ベッド {beds.length} 台 × 1 台あたり {SLOTS_PER_BED} 枠）」。
-        押さえる枠には清掃・準備の 15 分を含みます。キャンセル済みの予約は表にも件数にも出しません。
-      </p>
     </main>
   );
 }

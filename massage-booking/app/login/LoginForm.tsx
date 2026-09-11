@@ -48,8 +48,12 @@ export function LoginForm({ next }: { next: string }) {
   const [state, formAction] = useActionState<LoginState, FormData>(login, { error: null });
   const [showPassword, setShowPassword] = useState(false);
 
+  // text-base（16px）→ sm 以上で 15px。
+  // iOS Safari は 16px 未満の入力欄にフォーカスが当たると画面を拡大し、
+  // **その倍率はページを移動しても残る**（この欄は autoFocus なので、開いた瞬間に起きる）。
+  // 16px あれば拡大しない。sm 以上（PC）は従来どおり 15px のまま。
   const inputClass =
-    "w-full rounded-2xl border border-rose-200/70 bg-white/80 py-3.5 pl-12 pr-4 text-[15px] text-stone-800 placeholder:text-stone-400 shadow-sm transition focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-rose-300/40 dark:focus:bg-white/10 dark:focus:ring-rose-300/15";
+    "w-full rounded-2xl border border-rose-200/70 bg-white/80 py-3.5 pl-12 pr-4 text-base sm:text-[15px] text-stone-800 placeholder:text-stone-400 shadow-sm transition focus:border-rose-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-rose-200/50 dark:border-white/15 dark:bg-white/5 dark:text-stone-100 dark:placeholder:text-stone-500 dark:focus:border-rose-300/40 dark:focus:bg-white/10 dark:focus:ring-rose-300/15";
 
   return (
     <form action={formAction} className="flex flex-col gap-5">

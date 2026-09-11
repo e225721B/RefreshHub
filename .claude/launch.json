@@ -4,8 +4,10 @@
     {
       "name": "massage-booking",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "massage-booking", "run", "dev"],
-      "port": 3000
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "cwd": "massage-booking",
+      "autoPort": true
     }
   ]
 }
