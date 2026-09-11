@@ -6,6 +6,7 @@ import { hhmmOfLocal, isStartPassed, toDateString, toDateTime, weekdaysFrom } fr
 import {
   CLEANUP_MIN,
   TREATMENT_OPTIONS,
+  canAssignTherapist,
   getAvailableSlots,
   isStillAvailable,
   resolveShiftsForDate,
@@ -171,15 +172,45 @@ export async function createReservation(input: {
   // 一覧を見てから予約するまでの間に、他の人が同じ枠を取っている可能性がある。
   // 保存の直前にもう一度確かめる。
   const { start, end } = dayRange(input.date);
-  const reservations = await prisma.reservation.findMany({
-    where: { status: "booked", startAt: { gte: start, lt: end } },
-  });
+  const [reservations, therapists, workHours, absences] = await Promise.all([
+    prisma.reservation.findMany({
+      where: { status: "booked", startAt: { gte: start, lt: end } },
+    }),
+    prisma.therapist.findMany({ where: { active: true, user: { active: true } } }),
+    prisma.therapistWorkHours.findMany(),
+    prisma.therapistAbsence.findMany({ where: { startAt: { lt: end }, endAt: { gt: start } } }),
+  ]);
   const reservationWindows = reservations.map((r) => ({
     bedId: r.bedId,
     therapistId: r.therapistId,
     startTime: hhmmOfLocal(r.startAt),
     blockEndTime: hhmmOfLocal(r.endAt),
   }));
+
+  // 指定されたマッサージ師が、本当にその時間に対応できるかを確かめる。
+  // 画面が出した候補をそのまま信じない（この関数は画面を通さずに直接呼べるため、
+  // 勤務していない人・退職した人を指定されても保存しないようにする）。
+  const shifts = resolveShiftsForDate({
+    date: input.date,
+    therapists,
+    workHours,
+    absences,
+  });
+  if (
+    !canAssignTherapist({
+      shifts,
+      reservations: reservationWindows,
+      therapistId: input.therapistId,
+      startTime: input.startTime,
+      blockEndTime,
+    })
+  ) {
+    return {
+      ok: false,
+      message: "指定されたマッサージ師はその時間に対応できません。表を更新します",
+    };
+  }
+
   if (
     !isStillAvailable({
       reservations: reservationWindows,
