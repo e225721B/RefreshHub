@@ -115,6 +115,21 @@ export function WeekSchedule({
     return () => query.removeEventListener("change", onChange);
   }, []);
 
+  // 表の幅の決め方を PC と狭い画面で分けるための判定（Tailwind の sm と同じ 640px 境界）。
+  // 狭い画面だけ「列の合計とぴったり同じ幅」にして Safari の空欄を避け、
+  // PC では今までどおり幅いっぱいに伸ばす（伸ばした分は自動で列に配られる。ここは PC の
+  // ブラウザでは問題が出ていないため、狭い画面のときだけ挙動を変える）。
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 639px)");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setIsNarrowViewport(query.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsNarrowViewport(e.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
   const days = useMemo(() => weekdaysFrom(monday), [monday]);
   const rows = useMemo(() => timeRows(), []);
   const today = todayString();
@@ -526,17 +541,23 @@ export function WeekSchedule({
         セルと一緒に動かない）ため、狭い画面だけ border-separate に切り替える。
 
         表と列の幅（width / table-layout）は、Tailwind のクラスではなく style 属性で
-        直接指定している。当初は表に「幅は 100%、ただし最低 640px」（min-width）を指定し、
-        列の合計（時刻 4rem + 日付 6.5rem × 5 列 = 36.5rem）より広い分は表が自動で
-        列に配り直してくれる前提だったが、実機の Safari ではこの「配り直し」が効かず、
-        余った分がそのまま右側の空欄になった（Tailwind のクラスに戻しても、min-width だけに
-        しても、table-fixed にしても再現した）。
-        直し方は、表の幅を「配り直しが必要な余りが出ない値」＝**列の合計とぴったり同じ値**に
-        すること。余りそのものを無くしたので、配り直しに対応していないブラウザでも空欄が出ない。
+        直接指定している。当初は狭い画面でも PC と同じ「幅は 100%、ただし最低 640px」
+        （min-width）にしていたが、列の合計（時刻 4rem + 日付 6.5rem × 5 列 = 36.5rem）より
+        広い分を表が自動で列に配り直す前提のところ、実機の Safari ではこの「配り直し」が
+        効かず、余った分がそのまま右側の空欄になった（Tailwind のクラスに戻しても、
+        min-width だけにしても、table-fixed にしても再現した）。
+
+        直し方は、狭い画面だけ表の幅を「配り直しが必要な余りが出ない値」＝列の合計と
+        ぴったり同じ値にすること（`isNarrowViewport`）。PC では今までどおり幅いっぱいに
+        伸ばす（＝ 100%）。PC のブラウザでは配り直し自体に問題が出ていないため、
+        表を画面幅いっぱいに大きく見せる従来の見た目を PC では維持できる。
       */}
       <div className="overflow-x-auto">
         <table
-          style={{ width: `${TIME_COL_REM + DAY_COL_REM * days.length}rem`, tableLayout: "fixed" }}
+          style={{
+            width: isNarrowViewport ? `${TIME_COL_REM + DAY_COL_REM * days.length}rem` : "100%",
+            tableLayout: "fixed",
+          }}
           className="border-collapse select-none text-sm max-sm:border-separate max-sm:border-spacing-0 max-sm:border-t max-sm:border-l max-sm:border-black/10 max-sm:dark:border-white/15"
         >
           <thead>
