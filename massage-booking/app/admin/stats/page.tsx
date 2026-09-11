@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStats } from "@/app/actions/stats";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
 import { formatShort, fromDateString, shiftDate, toDateString, todayString } from "@/lib/dates";
 import { ROLE_LABEL, isRole } from "@/lib/roles";
 import { getCurrentUser, nextCookieJar } from "@/lib/session";
 import { formatMinutes, normalizeRange } from "@/lib/stats";
 import { UserBar } from "../../UserBar";
+import { MailboxButton } from "../../MailboxButton";
 import { HorizontalBarChart, PeriodChart } from "./Charts";
 
 export const metadata = {
@@ -41,6 +43,7 @@ export default async function AdminStatsPage({
   const user = await getCurrentUser(await nextCookieJar());
   if (!user) redirect("/login?next=%2Fadmin%2Fstats");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const params = await searchParams;
   // 画面の入力欄にも「実際に集計した期間」を出したいので、正した後の値を使う
@@ -61,6 +64,7 @@ export default async function AdminStatsPage({
           <Link href="/admin/users" className="text-sm underline underline-offset-4">
             ユーザー管理
           </Link>
+          <MailboxButton initialUnreadCount={unreadMailboxCount} />
           <UserBar user={user} />
         </div>
       </header>

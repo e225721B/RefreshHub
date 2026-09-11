@@ -15,7 +15,7 @@ import {
   type Slot,
 } from "@/lib/slots";
 import { canUserCancel, USER_CANCEL_CUTOFF_HOURS } from "@/lib/cancellation";
-import { AuthError, requireLogin } from "@/lib/auth";
+import { AuthError, requireLogin, requireRole } from "@/lib/auth";
 
 /** 入力値の検証。フォームは誰でも直接呼べるため、サーバ側で必ず確かめる。 */
 function isValidDate(date: string): boolean {
@@ -138,9 +138,10 @@ export async function createReservation(input: {
 }): Promise<ReserveResult> {
   let user;
   try {
-    user = await requireLogin();
+    // マッサージ師は予約する側ではないため、画面を隠すだけでなくここでも拒否する（F-8 と同じ考え方）。
+    user = await requireRole(["user", "admin"]);
   } catch (e) {
-    if (e instanceof AuthError) return { ok: false, message: "ログインしてください" };
+    if (e instanceof AuthError) return { ok: false, message: e.message };
     throw e;
   }
 

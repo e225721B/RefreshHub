@@ -2,8 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getCurrentUserForRequest } from "@/lib/session";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
 import { UserBar } from "../UserBar";
+import { MailboxButton } from "../MailboxButton";
 import { AddUserDialog } from "./AddUserDialog";
+import { PushNotificationButton } from "../PushNotificationButton";
 import { hhmmOfLocal, shiftDate, toDateTime, todayString } from "@/lib/dates";
 import { STEP_MIN, toHHMM, toMinutes } from "@/lib/slots";
 import { DEFAULT_WORK_WINDOWS } from "@/lib/business-hours";
@@ -47,6 +50,7 @@ export default async function AdminPage({
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const date =
     params.date && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : todayString();
@@ -107,6 +111,8 @@ export default async function AdminPage({
           <Link href="/therapist" className="text-sm underline underline-offset-4">
             マッサージ師向け画面を見る
           </Link>
+          <PushNotificationButton />
+          <MailboxButton initialUnreadCount={unreadMailboxCount} />
           <UserBar user={user} />
         </div>
       </header>

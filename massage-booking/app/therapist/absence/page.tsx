@@ -1,22 +1,23 @@
-import { listMyAbsenceRequests } from "@/app/actions/therapist";
-import { AbsenceRequestForm } from "./AbsenceRequestForm";
+import { listMyAbsences } from "@/app/actions/therapist";
+import { AbsenceForm } from "./AbsenceForm";
 
 /**
- * 休み申請（T-5）。マッサージ師が休みたい日を申請する画面。
- * 承認・自動キャンセルは今回のスコープ外。申請の送信と履歴表示までを実装する。
+ * 休みの登録（T-5）。マッサージ師が休みたい日を自分で登録する画面。
+ * その時間帯に予約が 1 件も無ければ、管理者の承認なしにそのまま休みになる（app/actions/therapist.ts の registerAbsence）。
+ * 登録・取消のたびに、管理者のメールボックスへその旨だけ通知される。
  */
 export default async function TherapistAbsencePage() {
-  const history = await listMyAbsenceRequests();
+  const history = await listMyAbsences();
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-stone-800 dark:text-stone-100">休み申請</h1>
+        <h1 className="text-2xl font-bold text-stone-800 dark:text-stone-100">休みの登録</h1>
         <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
-          登録済みのシフトを取り下げます。その時間に予約が入っている場合は、管理者が調整します。
+          予約が入っていない時間帯だけ、そのまま休みにできます。
         </p>
       </div>
-      <AbsenceRequestForm initialHistory={history} />
+      <AbsenceForm initialHistory={history} />
     </div>
   );
 }

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listUsers } from "@/app/actions/users";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
 import { GENDER_LABEL, ROLE_LABEL, ROLES, isRole, isGender } from "@/lib/roles";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { UserBar } from "../../UserBar";
+import { MailboxButton } from "../../MailboxButton";
 import { AddUserDialog } from "../AddUserDialog";
 import { UserActions } from "./UserActions";
 
@@ -40,6 +42,7 @@ export default async function AdminUsersPage({
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fusers");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const params = await searchParams;
   const keyword = params.q?.trim() ?? "";
@@ -71,6 +74,7 @@ export default async function AdminUsersPage({
           <Link href="/admin/stats" className="text-sm underline underline-offset-4">
             集計
           </Link>
+          <MailboxButton initialUnreadCount={unreadMailboxCount} />
           <UserBar user={user} />
         </div>
       </header>
