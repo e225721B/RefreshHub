@@ -20,7 +20,7 @@ export default async function TherapistsPage() {
   return (
     <>
       <TopNav user={user} />
-      <main className="mx-auto max-w-5xl px-6 py-10">
+      <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
         <header className="mb-8">
           <h1 className="text-2xl font-bold">マッサージ師の紹介</h1>
           <p className="mt-1 text-sm text-rose-600/80 dark:text-rose-300/80">

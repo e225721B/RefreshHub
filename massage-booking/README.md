@@ -1,3 +1,47 @@
+# マッサージ室の予約（RefreshHub）
+
+社内マッサージ室の空き状況の確認と予約を行う Next.js アプリ。
+
+- 要件・設計・実装の記録: `../docs/intern/`
+- **デプロイ手順（Vercel + Supabase）: `../docs/intern/deploy.md`**
+
+## 動かす
+
+データベースは **PostgreSQL**（本番は Supabase）。手元では Supabase の開発用プロジェクトにつなぐか、
+Docker で PostgreSQL を立てる。
+
+```bash
+# 1. Docker で PostgreSQL を立てる場合
+docker run -d --name refreshhub-pg -e POSTGRES_PASSWORD=devpass \
+  -e POSTGRES_DB=refreshhub -p 55432:5432 postgres:16-alpine
+
+# 2. .env を用意する（.env.example をコピーして値を埋める）
+cp .env.example .env
+
+# 3. テーブルを作り、動作確認用のデータを入れる
+npm install
+npm run db:migrate
+npm run db:seed
+
+# 4. 起動する
+npm run dev
+```
+
+ログインは `admin@example.com` / `password1234`（シードで作られる仮アカウント）。
+
+## よく使うコマンド
+
+| コマンド | 内容 |
+|---|---|
+| `npm run dev` | 開発サーバ |
+| `npm run build` | 本番ビルド（`prisma generate` を含む） |
+| `npm test` | 自動テスト（DB を使うものがあるため `.env` が必要） |
+| `npm run db:migrate` | マイグレーションを適用（`prisma migrate deploy`） |
+| `npm run db:seed` | シード投入（**全テーブルを消してから入れ直す**） |
+| `npm run lint` | ESLint |
+
+---
+
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
