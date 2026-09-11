@@ -61,6 +61,43 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
 }
 
 /**
+ * その日すでに割り当たっている拘束時間（施術 + 清掃の 15 分）を、マッサージ師ごとに合計する。
+ * 「まだ担当が無い人」は 0 分になり、次の割り当てで最優先になる。
+ */
+function assignedMinutes(reservations: Reservation[]): Map<string, number> {
+  const minutes = new Map<string, number>();
+  for (const r of reservations) {
+    const length = toMinutes(r.blockEndTime) - toMinutes(r.startTime);
+    minutes.set(r.therapistId, (minutes.get(r.therapistId) ?? 0) + length);
+  }
+  return minutes;
+}
+
+/**
+ * 空いている人の中から 1 人を選ぶ。**同じ人に偏らせないことがこの関数の仕事。**
+ *
+ * 以前は「勤務リストの先頭から最初に空いている人」を選んでいたため、
+ * 予約が少ないうちは**毎回同じ人に割り当たっていた**（午前は常に同じ人になる）。
+ *
+ * 1. **その日の担当時間が少ない人**を優先する。まだ担当が無い人は 0 分なので必ず先に選ばれる。
+ * 2. 担当時間が同じなら、**時間帯ごとに順番をずらす**（9:00 は 1 番目、9:15 は 2 番目…）。
+ *    これをしないと、全員 0 分の朝いちばんの状態で先頭の人にすべての枠が表示される。
+ *
+ * @param rotation 何番目の開始時刻か。順番をずらすために使う
+ */
+function pickTherapist(
+  candidates: Therapist[],
+  minutes: Map<string, number>,
+  rotation: number,
+): Therapist {
+  const offset = rotation % candidates.length;
+  const rotated = [...candidates.slice(offset), ...candidates.slice(0, offset)];
+  const load = (t: Therapist) => minutes.get(t.id) ?? 0;
+  // 同点のときは rotated の先頭（= ずらした後の 1 番目）が残るよう、< で比べる
+  return rotated.reduce((best, t) => (load(t) < load(best) ? t : best), rotated[0]);
+}
+
+/**
  * 空き枠を出す。
  *
  * 1. シフト（マッサージ師の勤務時間帯）を 15 分刻みに分割する
@@ -69,6 +106,7 @@ function overlaps(aStart: number, aEnd: number, bStart: number, bEnd: number): b
  * 4. どちらかが埋まっていればその時刻は出さない
  *
  * 利用者はマッサージ師を指名しない（AC-2）。割り当てはシステムが行う。
+ * **誰を割り当てるかは pickTherapist で決める。先頭の人に寄せない**（下のコメントを参照）。
  */
 export function getAvailableSlots(params: {
   shifts: Shift[];
@@ -113,29 +151,41 @@ export function getAvailableSlots(params: {
   }
 
   const slots: Slot[] = [];
+  // その日の担当ぶん。少ない人から割り当てるために使う
+  const minutesByTherapist = assignedMinutes(reservations);
+  const startTimes = [...startCandidates].sort((a, b) => a - b);
 
-  for (const start of [...startCandidates].sort((a, b) => a - b)) {
+  for (const [index, start] of startTimes.entries()) {
     // もう過ぎている開始時刻は候補にしない（今日の午前など）
     if (earliestStart !== null && start <= earliestStart) continue;
     const end = start + blockMin;
 
     // この時間帯に勤務していて、かつ予約が入っていないマッサージ師。
     // 希望する施術者が指定されていれば、その人たちの中だけから選ぶ。
-    // 希望を無視して「最初に空いている人」を割り当てると、
-    // 午前は常に同じ人が選ばれ、他の人で絞り込んだとき 0 件になってしまう。
-    const freeTherapist = shifts
-      .filter((s) => toMinutes(s.startTime) <= start && end <= toMinutes(s.endTime))
-      .map((s) => s.therapistId)
-      .filter((therapistId) => !therapistFilter || therapistFilter.has(therapistId))
-      .find(
-        (therapistId) =>
-          !reservations.some(
-            (r) =>
-              r.therapistId === therapistId &&
-              overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
-          ),
+    // 先に割り当ててから絞り込むと、別の人が選ばれた時刻が候補ごと消えてしまう。
+    //
+    // 候補の並び順は shifts ではなく therapists に合わせる。
+    // shifts は「勤務時間帯」の一覧で、1 人が午前・午後と 2 行に分かれることがあり、
+    // 並び順が人の順番を表さないため（順番をずらす pickTherapist が正しく回らなくなる）。
+    const candidates = therapists.filter((t) => {
+      if (therapistFilter && !therapistFilter.has(t.id)) return false;
+      const onShift = shifts.some(
+        (s) =>
+          s.therapistId === t.id &&
+          toMinutes(s.startTime) <= start &&
+          end <= toMinutes(s.endTime),
       );
-    if (!freeTherapist) continue;
+      if (!onShift) return false;
+      return !reservations.some(
+        (r) =>
+          r.therapistId === t.id &&
+          overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
+      );
+    });
+    if (candidates.length === 0) continue;
+
+    // 誰にするかは「その日の担当時間が少ない人」→「時間帯ごとにずらした順番」で決める
+    const freeTherapist = pickTherapist(candidates, minutesByTherapist, index).id;
 
     // この時間帯に予約が入っていないベッド
     const freeBed = beds.find(
@@ -164,6 +214,40 @@ export function getAvailableSlots(params: {
   }
 
   return slots;
+}
+
+/**
+ * 指名（または自動割り当て）されたマッサージ師が、**本当にその時間に対応できるか**を確かめる。
+ *
+ * - その時間帯に勤務しているか（欠勤・午前のみなどを反映した shifts で見る）
+ * - その時間帯に別の予約が入っていないか
+ *
+ * 画面が出した候補をそのまま信じない。予約の保存要求は画面を通さずに直接呼べるため、
+ * 「勤務していない人」「すでに埋まっている人」を指定されても保存しないようにする。
+ */
+export function canAssignTherapist(params: {
+  shifts: Shift[];
+  reservations: Reservation[];
+  therapistId: string;
+  startTime: string;
+  blockEndTime: string;
+}): boolean {
+  const start = toMinutes(params.startTime);
+  const end = toMinutes(params.blockEndTime);
+
+  const onShift = params.shifts.some(
+    (s) =>
+      s.therapistId === params.therapistId &&
+      toMinutes(s.startTime) <= start &&
+      end <= toMinutes(s.endTime),
+  );
+  if (!onShift) return false;
+
+  return !params.reservations.some(
+    (r) =>
+      r.therapistId === params.therapistId &&
+      overlaps(start, end, toMinutes(r.startTime), toMinutes(r.blockEndTime)),
+  );
 }
 
 /** 予約を保存する直前に、その枠がまだ空いているかを確かめる */

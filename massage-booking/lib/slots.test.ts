@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { getAvailableSlots, isStillAvailable, resolveShiftsForDate, toHHMM, toMinutes } from "./slots";
+import {
+  canAssignTherapist,
+  getAvailableSlots,
+  isStillAvailable,
+  resolveShiftsForDate,
+  toHHMM,
+  toMinutes,
+} from "./slots";
 import { timeOfDay } from "./business-hours";
 import { toDateTime } from "./dates";
 
@@ -374,4 +381,211 @@ test("別の日の欠勤は影響しない", () => {
     { therapistId: "t1", startTime: "09:00", endTime: "14:00" },
     { therapistId: "t1", startTime: "15:00", endTime: "20:00" },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// 担当の割り当て（偏りをならす）
+// ---------------------------------------------------------------------------
+
+const threeTherapists = [
+  { id: "t1", name: "佐藤", gender: "female" },
+  { id: "t2", name: "鈴木", gender: "male" },
+  { id: "t3", name: "高橋", gender: "male" },
+];
+const threeShifts = [
+  { therapistId: "t1", startTime: "09:00", endTime: "12:00" },
+  { therapistId: "t2", startTime: "09:00", endTime: "12:00" },
+  { therapistId: "t3", startTime: "09:00", endTime: "12:00" },
+];
+
+test("全員まだ担当が無いときは、時間帯ごとに担当が入れ替わる（先頭の人に寄らない）", () => {
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [],
+    treatmentMin: 15,
+  });
+
+  assert.deepEqual(
+    slots.slice(0, 4).map((s) => `${s.startTime}:${s.therapistId}`),
+    ["09:00:t1", "09:15:t2", "09:30:t3", "09:45:t1"],
+    "9:00 から順に t1 → t2 → t3 と回り、4 つ目でまた t1 に戻る",
+  );
+});
+
+test("その日すでに担当が入っている人は後回しになる", () => {
+  // t1 だけ 9:00〜10:00（枠 60 分）の担当が入っている日。
+  // 10:00 以降の枠は、まだ担当が無い t2 / t3 から割り当たる
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [{ bedId: "b1", therapistId: "t1", startTime: "09:00", blockEndTime: "10:00" }],
+    treatmentMin: 15,
+  });
+
+  const after10 = slots.filter((s) => toMinutes(s.startTime) >= toMinutes("10:00"));
+  assert.ok(after10.length >= 4, "10 時以降の枠があること");
+  assert.equal(
+    after10.slice(0, 4).some((s) => s.therapistId === "t1"),
+    false,
+    "担当時間が多い t1 は、他に空いている人がいる限り選ばれない",
+  );
+});
+
+test("担当時間が並んだら、少ない方が選ばれる", () => {
+  // t2 は 30 分ぶん、t3 は 60 分ぶんすでに担当している。t1 は 2 人より多い 75 分。
+  // 11:00 の枠は、いちばん少ない t2 に割り当たる
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t1", startTime: "09:00", blockEndTime: "10:15" },
+      { bedId: "b2", therapistId: "t2", startTime: "09:00", blockEndTime: "09:30" },
+      { bedId: "b3", therapistId: "t3", startTime: "09:00", blockEndTime: "10:00" },
+    ],
+    treatmentMin: 15,
+  });
+
+  const eleven = slots.find((s) => s.startTime === "11:00");
+  assert.ok(eleven, "11:00 の枠があること");
+  assert.equal(eleven.therapistId, "t2", "担当 30 分の t2 が、60 分の t3・75 分の t1 より先に選ばれる");
+});
+
+test("2 人に絞り込んだとき、担当時間が少ない方が先に選ばれる", () => {
+  // t2 はすでに 60 分ぶん担当している。t3 はまだ 0 分。
+  // 絞り込みで t1 が外れていても、残った 2 人の間で「少ない方」が優先される
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [{ bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "10:00" }],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  const afterTen = slots.filter((s) => toMinutes(s.startTime) >= toMinutes("10:00"));
+  assert.ok(afterTen.length >= 3, "10 時以降の枠があること");
+  assert.deepEqual(
+    [...new Set(afterTen.slice(0, 3).map((s) => s.therapistId))],
+    ["t3"],
+    "t2 が 60 分・t3 が 0 分なので、t2 が空いていても t3 に割り当たる",
+  );
+});
+
+test("絞り込んだ 2 人の担当時間が並んだら、そこからは交互に回る", () => {
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "09:30" },
+      { bedId: "b2", therapistId: "t3", startTime: "09:00", blockEndTime: "09:30" },
+    ],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  // 9:15 は 2 人とも 9:30 まで埋まっているため枠が出ない。9:30 から交互になる
+  const afterNineThirty = slots.filter((s) => toMinutes(s.startTime) >= toMinutes("09:30"));
+  assert.deepEqual(
+    afterNineThirty.slice(0, 4).map((s) => s.therapistId),
+    ["t2", "t3", "t2", "t3"],
+    "同点なら時間帯ごとに順番がずれ、片方に寄らない",
+  );
+});
+
+test("絞り込んだ相手が埋まっていれば、担当時間が多い方でも割り当たる", () => {
+  // 「少ない方を優先」は空いている人の中での話で、埋まっている人には割り当てない
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [
+      { bedId: "b1", therapistId: "t2", startTime: "09:00", blockEndTime: "10:00" },
+      { bedId: "b2", therapistId: "t3", startTime: "10:00", blockEndTime: "10:30" },
+    ],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  const ten = slots.find((s) => s.startTime === "10:00");
+  assert.ok(ten, "10:00 の枠があること");
+  assert.equal(ten.therapistId, "t2", "t3 はその時間が埋まっているので、担当 60 分の t2 に割り当たる");
+});
+
+test("施術者を絞り込んでいるときも、その中で偏りをならす", () => {
+  const slots = getAvailableSlots({
+    shifts: threeShifts,
+    beds,
+    therapists: threeTherapists,
+    reservations: [],
+    treatmentMin: 15,
+    therapistIds: ["t2", "t3"],
+  });
+
+  assert.deepEqual(
+    slots.slice(0, 3).map((s) => s.therapistId),
+    ["t2", "t3", "t2"],
+    "選ばれた 2 人（t2 / t3）の間で交互に回る。チェックされていない t1 は選ばれない",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 指名された人が本当に対応できるかの確認（canAssignTherapist）
+// ---------------------------------------------------------------------------
+
+test("指名: 勤務していて予約も無ければ true", () => {
+  assert.equal(
+    canAssignTherapist({
+      shifts: threeShifts,
+      reservations: [],
+      therapistId: "t1",
+      startTime: "09:00",
+      blockEndTime: "09:30",
+    }),
+    true,
+  );
+});
+
+test("指名: その時間に予約が入っていれば false", () => {
+  assert.equal(
+    canAssignTherapist({
+      shifts: threeShifts,
+      reservations: [{ bedId: "b1", therapistId: "t1", startTime: "09:15", blockEndTime: "09:45" }],
+      therapistId: "t1",
+      startTime: "09:00",
+      blockEndTime: "09:30",
+    }),
+    false,
+    "9:15〜9:45 の予約と 9:00〜9:30 の枠は重なる",
+  );
+});
+
+test("指名: 勤務時間から少しでもはみ出せば false", () => {
+  assert.equal(
+    canAssignTherapist({
+      shifts: threeShifts, // 12:00 まで
+      reservations: [],
+      therapistId: "t1",
+      startTime: "11:45",
+      blockEndTime: "12:15",
+    }),
+    false,
+  );
+});
+
+test("指名: その日に勤務していない人なら false", () => {
+  assert.equal(
+    canAssignTherapist({
+      shifts: [{ therapistId: "t1", startTime: "09:00", endTime: "12:00" }],
+      reservations: [],
+      therapistId: "t2",
+      startTime: "09:00",
+      blockEndTime: "09:30",
+    }),
+    false,
+  );
 });
