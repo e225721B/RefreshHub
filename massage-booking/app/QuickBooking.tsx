@@ -76,9 +76,6 @@ export function QuickBooking({ userName }: { userName: string }) {
       <div className="rounded-2xl border border-rose-100 bg-white p-5 shadow-sm dark:border-rose-500/20 dark:bg-white/[.04] sm:p-6">
         <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-lg font-bold">かんたん予約</h2>
-          <p className="text-sm text-black/60 dark:text-white/60">
-            3 つ選ぶだけ。空いていればそのまま確定できます。
-          </p>
         </div>
 
         <div className="space-y-4">
