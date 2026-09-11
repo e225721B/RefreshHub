@@ -1979,3 +1979,51 @@ $ npx eslint ...     → エラー 0
 ```
 
 学生に確認してほしいこと: 紹介画面で 4 名に顔写真が出て、shun だけ「S」のアイコンになっているか。
+
+---
+
+## 追加（2026-09-11 その14）: main を Vercel にデプロイ後、通知リマインド機能を本番でも使えるようにする
+
+コード自体は 2026-09-10 に実装済み（AC-11 / AC-12 / AC-18、`design.md` D-2 の各改訂を参照）。
+main が Vercel にデプロイされたので、**本番で有効にするための残り作業**（tasks.md 1333 行目に予告していた手順）を行う。
+`feat/reminder-notification-production` ブランチで作業。
+
+### 見つかった問題
+
+`lib/reminders.ts` の `appBaseUrl()` が `APP_BASE_URL` 未設定時に `http://localhost:3000` に固定されていた。
+本番で `APP_BASE_URL` を設定し忘れると、Slack のリマインド DM に入る「予約一覧へ戻る」リンクが
+`localhost` を指したまま利用者に届いてしまう（気づきにくい種類の不具合）。
+
+### 直したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/lib/reminders.ts` | `appBaseUrl()` に、`APP_BASE_URL` 未設定時のフォールバックとして Vercel が自動で持つ `VERCEL_PROJECT_PRODUCTION_URL` を使う処理を追加。手動設定を忘れても本番ドメインへのリンクになる（それでも無ければ従来どおり `localhost`） |
+| `massage-booking/.env.example` | `SLACK_BOT_TOKEN` / `CRON_SECRET` / `APP_BASE_URL` の説明を追記（今まで書かれていなかった） |
+| `docs/intern/deploy.md` | 「4. 通知リマインド機能を本番で有効にする」を新設。Slack App の作り方（Bot Token・`users:read.email` / `chat:write` スコープ）、Vercel への環境変数設定、Cron Jobs の確認、`curl` での手動確認手順、トラブルシューティング表を追加 |
+
+### 確認
+
+```
+$ npx tsc --noEmit
+→ app/actions/users.ts の型エラー 1 件のみ（今回の変更と無関係。main の時点で既に発生することを
+  git stash で切り分けて確認済み）
+$ npx eslint lib/reminders.ts
+→ エラー 0
+```
+
+ブラウザで見た目が変わる変更ではない（cron から呼ばれるサーバ側の URL 組み立てとドキュメントのみ）ため、
+画面での確認はしていない。
+
+### 残っている作業（コードでは対応できない部分）
+
+以下は Slack ワークスペースと Vercel プロジェクトの管理画面での作業のため、**学生が自分の権限で行う**。
+
+| # | 作業 | 参照 |
+|---|---|---|
+| 1 | Slack App を作り、Bot Token を発行する | `deploy.md` 4-1 |
+| 2 | Vercel の環境変数に `SLACK_BOT_TOKEN` と `CRON_SECRET` を設定し、再デプロイする | `deploy.md` 4-2 |
+| 3 | Vercel の Settings → Cron Jobs で `/api/cron/remind` が有効になっているか確認する | `deploy.md` 4-3 |
+| 4 | `curl` で手動実行し、実際に Slack DM が届くか確認する | `deploy.md` 4-4 |
+
+この 4 つが終わって初めて、本番で毎朝 9 時のリマインドが実際に送られるようになる。

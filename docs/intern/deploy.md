@@ -93,7 +93,9 @@ npm run db:seed      # 管理者・マッサージ師・ベッドを投入
 | `DIRECT_URL` | 直結の URL（5432） | ○ |
 | `TZ` | `Asia/Tokyo` | ○ |
 | `SESSION_SECRET` | 32 バイトのランダムな文字列 | ○ |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` の出力 | 任意（通知を使うなら） |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | `npx web-push generate-vapid-keys` の出力 | 任意（ブラウザプッシュ通知を使うなら） |
+| `SLACK_BOT_TOKEN` | Slack App の Bot Token（`xoxb-`） | 任意（Slack リマインド通知を使うなら。**次章参照**） |
+| `CRON_SECRET` | ランダムな文字列 | 任意（同上。Slack リマインド通知を使うなら実質必須） |
 
 4. デプロイする。ビルドは `prisma generate && next build`（`package.json` に設定済み）
 
@@ -103,12 +105,83 @@ npm run db:seed      # 管理者・マッサージ師・ベッドを投入
 
 ---
 
-## 4. デプロイ後の確認
+## 4. 通知リマインド機能を本番で有効にする（AC-11 / AC-12 / AC-18）
+
+予約確定・キャンセル・毎朝9時のリマインドは **Slack DM** で送る設計（`design.md` D-2 の改訂を参照）。
+コード自体は実装済みで、**Vercel 側の設定が残っている状態**だとリマインドだけが動かない
+（`SLACK_BOT_TOKEN` / `CRON_SECRET` が未設定でも、通知処理はエラーを出さずに黙ってスキップするだけなので気づきにくい）。
+
+### 4-1. Slack App を作る
+
+1. [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From scratch**
+2. 対象のワークスペースを選ぶ
+3. **OAuth & Permissions** → **Scopes** → **Bot Token Scopes** に次の 2 つを追加する
+
+   | スコープ | 用途 |
+   |---|---|
+   | `users:read.email` | メールアドレスから Slack ユーザーを特定する（`lib/slack.ts` の `users.lookupByEmail`） |
+   | `chat:write` | DM を送る（`chat.postMessage`） |
+
+4. **Install to Workspace** → 承認する
+5. **OAuth & Permissions** の先頭に表示される **Bot User OAuth Token**（`xoxb-` で始まる）を控える
+
+**利用者・マッサージ師の Slack のメールアドレスが、アプリに登録したメールアドレスと一致している必要がある。**
+一致しない相手には送れない（design.md D-2 の既知のリスクとして記載済み）。
+
+### 4-2. Vercel に環境変数を設定する
+
+| 変数 | 値 |
+|---|---|
+| `SLACK_BOT_TOKEN` | 4-1 で控えた Bot User OAuth Token |
+| `CRON_SECRET` | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` で生成したランダムな文字列 |
+
+Production / Preview の両方に設定し、**再デプロイする**（環境変数は追加しただけでは既存のデプロイに反映されない）。
+
+`APP_BASE_URL` は設定しなくてよい。未設定なら Vercel が自動で持つ本番ドメイン
+（`VERCEL_PROJECT_PRODUCTION_URL`）を `lib/reminders.ts` が使う。独自ドメインなど、
+自動検出と違う URL をリマインド内のリンクに使いたいときだけ明示的に設定する。
+
+### 4-3. Vercel の Cron Jobs を確認する
+
+`massage-booking/vercel.json` に `crons`（`/api/cron/remind` を毎日 UTC 0:00 = JST 9:00 に呼ぶ設定）が
+コミット済みなので、デプロイすれば Vercel 側に自動で登録される。
+プロジェクトの **Settings → Cron Jobs** に `/api/cron/remind` が表示され、有効になっていることを確認する。
+
+**Hobby プラン（無料）は Cron の実行が 1 日 1 回まで。** 現在の設定はそれに合わせてあるので変更しない
+（design.md D-2 の三度目の改訂を参照）。実行時刻は Vercel 側の混雑状況で数分〜1時間ずれることがある
+（Hobby プランの仕様）。
+
+### 4-4. 動作確認
+
+1. その日の予約を最低 1 件作る（利用者・マッサージ師それぞれの Slack にメールアドレスが登録済みであること）
+2. 手動で叩いて確認する
+
+   ```bash
+   curl -H "Authorization: Bearer <CRON_SECRET>" https://<本番ドメイン>/api/cron/remind
+   ```
+
+3. `{"ok":true,"usersNotified":1,"therapistsNotified":1}` のような結果が返り、
+   利用者・マッサージ師それぞれの Slack に DM が届くことを確認する
+4. 同じ予約に対してもう一度叩いても再送されないことを確認する（`reminderSentAt` が記録済みのため）
+
+### トラブルシューティング
+
+| 症状 | 原因 |
+|---|---|
+| `{"ok":false,"message":"CRON_SECRET が設定されていません"}` | Vercel に `CRON_SECRET` が未設定。設定後に再デプロイが必要 |
+| `{"ok":false,"message":"unauthorized"}` | `Authorization` ヘッダーの値が `CRON_SECRET` と一致していない |
+| DM が届かない（エラーは返らない） | `SLACK_BOT_TOKEN` 未設定、または本人の Slack のメールアドレスがアプリの登録メールアドレスと不一致。Vercel の Functions ログ（`[slack] ...`）で原因を確認する |
+| リマインドの「予約一覧へ戻る」リンクが `localhost` になっている | `APP_BASE_URL` を誤って `http://localhost:3000` のまま設定していないか確認する（未設定なら自動検出されるはず） |
+
+---
+
+## 5. デプロイ後の確認
 
 1. `/login` を開き、`admin@example.com` / `password1234` でログインできる（= DB に届いている）
 2. `/admin` の予約状況が表示され、**時刻が日本時間で出ている**（9:00 の枠が 9:00 に見える）
 3. `/` から予約を 1 件入れ、`/admin` に反映される
 4. Supabase の Table Editor で `Reservation` に行が増えていることを確認する
+5. 通知リマインドを使う場合は、上の「4. 通知リマインド機能を本番で有効にする」の手順も行う
 
 ---
 

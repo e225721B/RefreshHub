@@ -13,7 +13,13 @@ import { sendSlackDM } from "@/lib/slack";
 import { dailyDigestMessageForTherapist, dailyDigestMessageForUser } from "@/lib/notification-messages";
 
 function appBaseUrl(): string {
-  return process.env.APP_BASE_URL ?? "http://localhost:3000";
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL;
+  // Vercel が自動で設定する本番ドメイン。APP_BASE_URL を明示していない環境でも
+  // localhost に落ちてキャンセル導線が壊れないようにするための保険。
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  return "http://localhost:3000";
 }
 
 function todayRange(): { start: Date; end: Date } {
