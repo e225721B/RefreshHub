@@ -92,7 +92,7 @@ export function ReservationDetailModal({ id, onClose }: { id: string; onClose: (
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl bg-background shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {detail === undefined ? (
@@ -101,12 +101,12 @@ export function ReservationDetailModal({ id, onClose }: { id: string; onClose: (
           <p className="p-6 text-sm text-stone-500 dark:text-stone-400">見つかりませんでした</p>
         ) : (
           <>
-            <div className="bg-gradient-to-r from-rose-500 to-orange-400 px-6 py-5 text-white">
+            <div className="shrink-0 bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-4 text-white sm:px-6 sm:py-5">
               <p className="text-xs font-medium text-white/80">予約の詳細</p>
               <h2 className="text-lg font-bold">{formatShort(detail.date)}の予約</h2>
             </div>
 
-            <div className="p-6">
+            <div className="overflow-y-auto p-4 sm:p-6">
               <dl className="space-y-2.5 text-sm">
                 <Row icon={<UserIcon />} label="利用者" value={detail.userName} />
                 <Row

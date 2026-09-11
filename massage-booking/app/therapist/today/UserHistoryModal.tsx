@@ -49,7 +49,7 @@ export function UserHistoryModal({ userId, onClose }: { userId: string; onClose:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-md overflow-hidden rounded-2xl bg-background shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-background shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {history === undefined ? (
@@ -58,7 +58,7 @@ export function UserHistoryModal({ userId, onClose }: { userId: string; onClose:
           <p className="p-6 text-sm text-stone-500 dark:text-stone-400">見つかりませんでした</p>
         ) : (
           <>
-            <div className="flex items-center gap-3 bg-gradient-to-r from-rose-500 to-orange-400 px-6 py-5 text-white">
+            <div className="flex shrink-0 items-center gap-3 bg-gradient-to-r from-rose-500 to-orange-400 px-4 py-4 text-white sm:px-6 sm:py-5">
               <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-lg font-bold ring-1 ring-white/30">
                 {history.userName.slice(0, 1)}
               </div>
@@ -73,7 +73,7 @@ export function UserHistoryModal({ userId, onClose }: { userId: string; onClose:
               )}
             </div>
 
-            <div className="p-6">
+            <div className="overflow-y-auto p-4 sm:p-6">
               <div className="space-y-2">
                 {history.rows.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-black/15 px-4 py-6 text-center text-sm text-stone-400 dark:border-white/20">

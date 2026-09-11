@@ -50,3 +50,10 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* スマホ画面では文字サイズが全体的に大きく感じるため、rem 基準のフォントサイズを一段階小さくする */
+@media (max-width: 640px) {
+  html {
+    font-size: 87.5%;
+  }
+}
