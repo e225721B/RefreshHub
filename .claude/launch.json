@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "massage-booking",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "massage-booking", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

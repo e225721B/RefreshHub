@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import { createReservation, fetchWeekAvailability, type WeekAvailability } from "./actions/booking";
+import {
+  createReservation,
+  fetchWeekAvailability,
+  getBookedReservationInWeek,
+  type WeekAvailability,
+  type WeekBooking,
+} from "./actions/booking";
 import {
   formatShort,
   formatWeekLabel,
@@ -21,6 +27,12 @@ import { useFlashMessage } from "./useFlashMessage";
 // 休憩時間は「空きが無い」として自動的に灰色になる。
 const GRID_START = "09:00";
 const GRID_END = "20:00";
+
+// 「あなたの予約」の時間帯。青だと他の予約系の色（rose 系）から浮くため、
+// rose の斜め線パターンにして「選べないが、他とは違う」ことを示す。
+const MY_BOOKED_STRIPE =
+  "bg-[repeating-linear-gradient(45deg,#fda4af_0px,#fda4af_2px,#fecdd3_2px,#fecdd3_14px)] " +
+  "dark:bg-[repeating-linear-gradient(45deg,#881337_0px,#881337_2px,#4c0519_2px,#4c0519_14px)]";
 
 /** ドラッグで選べる最大マス数。施術は最大 45 分（15 分 × 3 マス）。 */
 const MAX_CELLS = 3;
@@ -45,6 +57,8 @@ export function WeekSchedule({ userName }: { userName: string }) {
   const [monday, setMonday] = useState(() => mondayOf(todayString()));
   const [genders, setGenders] = useState<string[]>(["female", "male"]);
   const [availability, setAvailability] = useState<WeekAvailability>({});
+  const [weekBooking, setWeekBooking] = useState<WeekBooking | null>(null);
+  const weekLocked = weekBooking !== null;
   const [selection, setSelection] = useState<Selection | null>(null);
   const [dragging, setDragging] = useState(false);
   const { message, showMessage, clearMessage } = useFlashMessage();
@@ -59,22 +73,48 @@ export function WeekSchedule({ userName }: { userName: string }) {
   const gendersKey = genders.join(",");
 
   const reload = useCallback(async () => {
-    setAvailability(await fetchWeekAvailability(monday, genders));
+    const [nextAvailability, booking] = await Promise.all([
+      fetchWeekAvailability(monday, genders),
+      getBookedReservationInWeek(monday),
+    ]);
+    setAvailability(nextAvailability);
+    setWeekBooking(booking);
     // gendersKey で依存を表す
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
 
   useEffect(() => {
     startLoading(async () => {
-      setAvailability(await fetchWeekAvailability(monday, genders));
+      const [nextAvailability, booking] = await Promise.all([
+        fetchWeekAvailability(monday, genders),
+        getBookedReservationInWeek(monday),
+      ]);
+      setAvailability(nextAvailability);
+      setWeekBooking(booking);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monday, gendersKey]);
 
+  // 「自分の予約」側でのキャンセルなど、他コンポーネントでの変更をこの週表示にも反映する
+  useEffect(() => {
+    const onUpdated = () => {
+      reload();
+    };
+    window.addEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+    return () => window.removeEventListener(RESERVATION_UPDATED_EVENT, onUpdated);
+  }, [reload]);
+
   /** その日・その時刻から 15 分の施術を始められるか（＝マスが空き色になる条件） */
   function isCellOpen(date: string, time: string): boolean {
+    if (weekLocked) return false; // この週はすでに予約がある（AC-19、週1回まで）
     if (isPast(date)) return false;
     return Boolean(availability[date]?.[15]?.[time]);
+  }
+
+  /** このマスが、今週すでに持っている自分の予約の時間帯かどうか */
+  function isMyBookedCell(date: string, time: string): boolean {
+    if (!weekBooking || weekBooking.date !== date) return false;
+    return time >= weekBooking.startTime && time < weekBooking.endTime;
   }
 
   /** 選択範囲の先頭行・マス数・施術時間 */
@@ -195,6 +235,13 @@ export function WeekSchedule({ userName }: { userName: string }) {
         ベッドと施術者は自動で割り当てられます。
       </p>
 
+      {weekLocked && (
+        <p className="rounded-lg border border-red-600/30 bg-red-600/10 px-4 py-3 text-sm text-red-800 dark:text-red-300">
+          この週はすでに予約があるため、新しく選べません（1週間に1回まで）。
+          キャンセルすれば、この週にもう一度予約できます。
+        </p>
+      )}
+
       <FlashToast message={message} />
 
       {/*
@@ -300,6 +347,12 @@ export function WeekSchedule({ userName }: { userName: string }) {
           <span className="inline-block size-3 rounded-sm bg-black/25 dark:bg-white/30" />
           空きなし（選べません）
         </span>
+        {weekLocked && (
+          <span className="flex items-center gap-1.5">
+            <span className={`inline-block size-3 rounded-sm ${MY_BOOKED_STRIPE}`} />
+            あなたの予約
+          </span>
+        )}
       </div>
 
       {/* 週のスケジュール表 */}
@@ -337,6 +390,7 @@ export function WeekSchedule({ userName }: { userName: string }) {
                   const open = isCellOpen(date, time);
                   const inSelection = isInSelection(date, rowIndex);
                   const selectionValid = selected?.valid ?? true;
+                  const myBooked = isMyBookedCell(date, time);
 
                   let tone = "bg-black/15 dark:bg-white/25"; // 空きなし
                   if (inSelection) {
@@ -345,6 +399,8 @@ export function WeekSchedule({ userName }: { userName: string }) {
                       : "bg-red-500/45";
                   } else if (open) {
                     tone = "bg-rose-100 hover:bg-rose-200 dark:bg-rose-400/20 dark:hover:bg-rose-400/35";
+                  } else if (myBooked) {
+                    tone = MY_BOOKED_STRIPE;
                   }
 
                   return (
@@ -355,14 +411,16 @@ export function WeekSchedule({ userName }: { userName: string }) {
                       title={
                         open
                           ? `${formatShort(date)} ${time} から。ドラッグで長さを変えられます`
-                          : "空きがありません"
+                          : myBooked
+                            ? "あなたの予約の時間です"
+                            : "空きがありません"
                       }
                       className={`h-7 border border-black/10 p-0 dark:border-white/15 ${tone} ${
                         open ? "cursor-pointer" : "cursor-not-allowed"
                       }`}
                     >
                       <span className="sr-only">
-                        {formatShort(date)} {time} {open ? "空き" : "空きなし"}
+                        {formatShort(date)} {time} {open ? "空き" : myBooked ? "あなたの予約" : "空きなし"}
                       </span>
                     </td>
                   );

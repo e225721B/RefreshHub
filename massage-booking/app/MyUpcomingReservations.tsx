@@ -39,6 +39,10 @@ export function MyUpcomingReservations() {
     setCancelling(false);
     setTarget(null);
     await load();
+    if (result.ok) {
+      // 週表示側（AC-19: 週1回まで）がこのキャンセルを反映して再読み込みできるように知らせる
+      window.dispatchEvent(new Event(RESERVATION_UPDATED_EVENT));
+    }
   }
 
   // 読み込み中、またはこれからの予約が無ければ表は出さない（レイアウトが空のまま余白だけ残らないように）。

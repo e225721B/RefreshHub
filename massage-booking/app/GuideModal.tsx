@@ -43,11 +43,10 @@ export function GuideModal() {
                 <dd>
                   スケジュール表の<strong>空いているマスを縦にドラッグ</strong>して施術時間を選びます。
                   1 マス = 15 分で、最大 3 マス（45 分）まで選べます。
+                  <span className="text-black/60 dark:text-white/60">
+                    （※週に一回のみ利用可能です）
+                  </span>
                 </dd>
-              </div>
-              <div>
-                <dt className="font-semibold">押さえる枠</dt>
-                <dd>施術時間 + 15 分（清掃・準備の時間）。45 分の施術なら 60 分の枠になります。</dd>
               </div>
               <div>
                 <dt className="font-semibold">利用できる時間</dt>
@@ -68,7 +67,7 @@ export function GuideModal() {
               </div>
               <div>
                 <dt className="font-semibold">施術者の指名</dt>
-                <dd>指名は不要です。時間を選ぶと、空いている施術者とベッドが自動で決まります。</dd>
+                <dd>絞り込むと指名できます。絞り込まない場合は自動で割り当てられます。</dd>
               </div>
             </dl>
             <button
