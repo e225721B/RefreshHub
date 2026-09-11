@@ -15,7 +15,9 @@ export function TopNav({ user }: { user: SessionUser }) {
   const pathname = usePathname();
 
   function linkClass(href: string) {
-    const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+    // "/therapist" が "/therapists" にも一致してしまわないよう、区切りまで含めて比べる
+    const active =
+      href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
     return `${NAV_LINK} ${active ? NAV_LINK_ACTIVE : ""}`;
   }
 
@@ -42,6 +44,11 @@ export function TopNav({ user }: { user: SessionUser }) {
         </div>
 
         <div className="flex items-center gap-4">
+          {(user.role === "therapist" || user.role === "admin") && (
+            <Link href="/therapist" className={linkClass("/therapist")}>
+              マッサージ師向け
+            </Link>
+          )}
           {user.role === "admin" && (
             <Link href="/admin" className={linkClass("/admin")}>
               管理者向け

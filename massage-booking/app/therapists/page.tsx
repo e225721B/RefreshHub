@@ -3,12 +3,12 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { GENDER_LABEL, isGender } from "@/lib/roles";
 import { summarizeWeeklySchedule } from "@/lib/schedule-summary";
-import { getCurrentUser, nextCookieJar } from "@/lib/session";
+import { getCurrentUserForRequest } from "@/lib/session";
 import { TopNav } from "../TopNav";
 
 /** マッサージ師の紹介画面（画面 3）。得意な施術や雰囲気を見てから、予約するか選べる。 */
 export default async function TherapistsPage() {
-  const user = await getCurrentUser(await nextCookieJar());
+  const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Ftherapists");
 
   const therapists = await prisma.therapist.findMany({

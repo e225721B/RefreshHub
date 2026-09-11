@@ -27,6 +27,20 @@ model User {
   cancelledReservations Reservation[]      @relation("ReservationCancelledBy")
   registeredAbsences    TherapistAbsence[]
   notifications         Notification[]
+  decidedAbsenceRequests AbsenceRequest[]  @relation("AbsenceRequestDecidedBy")
+  sessions              Session[]
+}
+
+/// ログインセッション（F-6）。Cookie には token だけを入れ、なりすまし防止のため
+/// user.id 自体は Cookie に載せない（design.md 参照）。
+model Session {
+  token     String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
 }
 
 /// マッサージ師。表示名は User.name、性別は User.gender を使うため、ここには持たない
@@ -45,6 +59,7 @@ model Therapist {
   workHours    TherapistWorkHours[]
   absences     TherapistAbsence[]
   reservations Reservation[]
+  absenceRequests AbsenceRequest[]
 }
 
 /// 施術ベッド。台数が変わってもデータ追加だけで対応できるようテーブルで持つ。
@@ -80,6 +95,25 @@ model TherapistAbsence {
   createdById String
 
   @@index([therapistId, startAt])
+}
+
+/// マッサージ師からの休み申請（/therapist/absence）。承認するとここから TherapistAbsence が作られる想定だが、
+/// 管理者側の承認画面は今回未実装。申請の作成・履歴表示までがスコープ（design.md「/therapist 実装内容」参照）。
+model AbsenceRequest {
+  id          String    @id @default(cuid())
+  therapist   Therapist @relation(fields: [therapistId], references: [id])
+  therapistId String
+  date        DateTime // 対象日（日付のみ使う。時刻部分はダミー）
+  target      String // "day" | "am" | "pm"
+  reason      String?
+  status      String    @default("pending") // "pending" | "approved" | "rejected"
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
+  decidedBy   User?     @relation("AbsenceRequestDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedById String?
+
+  @@index([therapistId])
+  @@index([status])
 }
 
 /// 予約。押さえる枠は「施術時間 + 15 分」（+15 分は清掃・準備）。

@@ -200,24 +200,30 @@ test("弱いパスワード・不正なメールアドレス・不明な権限�
   assert.equal(badRole.ok, false);
 });
 
-test("予約が無いユーザーは DB から完全に削除される", async () => {
+test("記録が 1 件も無いユーザーでも、DB からは消えず active が false になるだけ（論理削除）", async () => {
   const email = emailFor("deletable");
+  const password = generatePassword();
   const created = await createUserAccount({
     name: "削除 太郎",
     email,
     gender: "female",
     role: "user",
-    password: generatePassword(),
+    password,
   });
-  assert.equal(created.ok, true);
+  assert.ok(created.ok);
 
-  const result = await deleteUserAccount("u-admin", created.ok ? created.user.id : "");
+  const result = await deleteUserAccount("u-admin", created.user.id);
   assert.equal(result.ok, true);
-  assert.equal(result.ok && result.mode, "deleted");
-  assert.equal(await prisma.user.findUnique({ where: { email } }), null);
+
+  const stillThere = await prisma.user.findUnique({ where: { email } });
+  assert.ok(stillThere, "行が物理削除されている（後から見返せなくなる）");
+  assert.equal(stillThere?.active, false);
+
+  const loggedIn = await login(memoryJar(), email, password);
+  assert.equal(loggedIn.ok, false, "削除したアカウントでログインできてしまう");
 });
 
-test("マッサージ師を削除すると Therapist の行も一緒に消える", async () => {
+test("マッサージ師を削除しても Therapist の行は消えない（担当した予約を辿れるようにする）", async () => {
   const email = emailFor("deletable-therapist");
   const created = await createUserAccount({
     name: "削除 施術者",
@@ -231,11 +237,37 @@ test("マッサージ師を削除すると Therapist の行も一緒に消える
   assert.ok(therapist, "登録時に Therapist が作られていること");
 
   const result = await deleteUserAccount("u-admin", created.user.id);
-  assert.equal(result.ok && result.mode, "deleted");
-  assert.equal(await prisma.therapist.findUnique({ where: { id: therapist.id } }), null);
+  assert.equal(result.ok, true);
+  assert.ok(
+    await prisma.therapist.findUnique({ where: { id: therapist.id } }),
+    "Therapist の行が消えている",
+  );
+  // 倒すのは User.active だけ。Therapist.active（勤務側の設定）は勝手に触らない
+  const after = await prisma.user.findUnique({ where: { id: created.user.id } });
+  assert.equal(after?.active, false);
+  assert.equal(
+    (await prisma.therapist.findUnique({ where: { id: therapist.id } }))?.active,
+    true,
+    "アカウントの削除で Therapist.active まで倒している",
+  );
 });
 
-test("予約があるユーザーは削除されず無効になり、ログインできなくなる", async () => {
+test("同じユーザーを 2 回削除しようとしたら、2 回目は断る", async () => {
+  const created = await createUserAccount({
+    name: "二度 削除",
+    email: emailFor("double-delete"),
+    gender: "male",
+    role: "user",
+    password: generatePassword(),
+  });
+  assert.ok(created.ok);
+
+  assert.equal((await deleteUserAccount("u-admin", created.user.id)).ok, true);
+  const second = await deleteUserAccount("u-admin", created.user.id);
+  assert.equal(second.ok, false);
+});
+
+test("予約があるユーザーも同じく無効になり、ログインできなくなる", async () => {
   const email = emailFor("hashistory");
   const password = generatePassword();
   const created = await createUserAccount({ name: "実績 花子", email, gender: "female",
@@ -244,7 +276,7 @@ test("予約があるユーザーは削除されず無効になり、ログイ�
   await createReservationFor(created.user.id);
 
   const result = await deleteUserAccount("u-admin", created.user.id);
-  assert.equal(result.ok && result.mode, "deactivated");
+  assert.equal(result.ok, true);
 
   const stillThere = await prisma.user.findUnique({ where: { email } });
   assert.ok(stillThere, "アカウントは残っていること（過去の予約が壊れないため）");
@@ -262,7 +294,8 @@ test("予約があるユーザーは削除されず無効になり、ログイ�
 
 /** その週の空き枠に出てくるマッサージ師の一覧。担当候補に出るかどうかを見るために使う */
 async function therapistIdsInWeek(monday: string): Promise<Set<string>> {
-  const week = await fetchWeekAvailability(monday, ["female", "male"]);
+  // 絞り込みなし（施術者を指定しない）で、担当候補に出てくる人を全部集める
+  const week = await fetchWeekAvailability(monday);
   const ids = new Set<string>();
   for (const byTreatment of Object.values(week)) {
     for (const byTime of Object.values(byTreatment)) {
@@ -302,7 +335,7 @@ test("記録があるマッサージ師を無効化すると、空き枠の担�
     // 記録を作り、削除ではなく無効化に倒す
     await createReservationFor(created.user.id);
     const result = await deleteUserAccount("u-admin", created.user.id);
-    assert.equal(result.ok && result.mode, "deactivated");
+    assert.equal(result.ok, true);
 
     assert.equal(
       (await therapistIdsInWeek(MONDAY)).has(therapist.id),
@@ -351,7 +384,8 @@ test("管理者が 2 人以上いれば、片方は削除できる", async () =>
 
   const result = await deleteUserAccount("u-admin", extra.user.id);
   assert.equal(result.ok, true);
-  assert.equal(await prisma.user.findUnique({ where: { id: extra.user.id } }), null);
+  const after = await prisma.user.findUnique({ where: { id: extra.user.id } });
+  assert.equal(after?.active, false, "論理削除なので行は残り、active だけ false になる");
 });
 test("パスワードを渡さなければサーバ側で自動的に作られ、その値でログインできる", async () => {
   const email = emailFor("autopass");
