@@ -17,6 +17,7 @@ import {
   hhmmOfLocal,
 } from "@/lib/dates";
 import { resolveShiftsForDate, toMinutes } from "@/lib/slots";
+import { sendPushToAdmins } from "@/lib/push";
 
 /** ログイン中のユーザーに紐づく Therapist を探す。管理者などマッサージ師でない人は null */
 async function resolveMyTherapist(userId: string) {
@@ -273,13 +274,15 @@ export async function listShiftOverview(mondayStr: string, therapistIds: string[
 }
 
 // ---------------------------------------------------------------------------
-// 休み申請（送信・履歴のみ。承認は今回のスコープ外）
+// 休みの登録（自己申告制。予約が 1 件も無い時間帯だけ、承認なしで自分で登録できる）
 // ---------------------------------------------------------------------------
 
 export type AbsenceTarget = "day" | "am" | "pm";
 
+const TARGET_LABEL: Record<AbsenceTarget, string> = { day: "終日", am: "午前", pm: "午後" };
+
 /**
- * 申請対象日のうち、実際に働いている時間帯（既定 or 個別の TherapistWorkHours）から
+ * 対象日のうち、実際に働いている時間帯（既定 or 個別の TherapistWorkHours）から
  * target に応じた範囲を切り出す。その日そもそも勤務が無ければ null。
  *
  * 制約: 勤務帯が 1 つしか無い人（午前のみ等）が pm を選んでも、
@@ -310,11 +313,18 @@ async function resolveAbsenceRange(
   return { start: toDateTime(date, window.startTime), end: toDateTime(date, window.endTime) };
 }
 
-export type AbsenceRequestResult =
-  | { ok: true; message: string; overlappingCount: number }
-  | { ok: false; message: string };
+/**
+ * 休みの登録・取消を、対象ロール（今はまだ管理者だけ）へ知らせる。
+ * アプリ内メールボックスへの記録に加えて、購読しているブラウザへプッシュ通知も送る。
+ */
+async function notifyAdmins(body: string): Promise<void> {
+  const admins = await prisma.user.findMany({ where: { role: "admin", active: true } });
+  if (admins.length === 0) return;
+  await prisma.mailboxMessage.createMany({ data: admins.map((a) => ({ toUserId: a.id, body })) });
+  await sendPushToAdmins("お知らせ", body);
+}
 
-/** 日付・対象を選んだ時点で、その範囲に何件の予約が重なるかを見せる（送信前のプレビュー） */
+/** 日付・対象を選んだ時点で、その範囲に何件の予約が重なるかを見せる（登録前のプレビュー） */
 export async function previewAbsenceOverlap(date: string, target: AbsenceTarget): Promise<number | null> {
   const user = await requireRole(["therapist"]);
   const therapist = await resolveMyTherapist(user.id);
@@ -332,11 +342,14 @@ export async function previewAbsenceOverlap(date: string, target: AbsenceTarget)
   });
 }
 
-export async function createAbsenceRequest(input: {
+export type RegisterAbsenceResult = { ok: true; message: string } | { ok: false; message: string };
+
+/** 休みを登録する。その時間帯に予約が 1 件でもあれば登録できない（管理者調整なしの自己申告制のため） */
+export async function registerAbsence(input: {
   date: string;
   target: AbsenceTarget;
   reason?: string;
-}): Promise<AbsenceRequestResult> {
+}): Promise<RegisterAbsenceResult> {
   const user = await requireRole(["therapist"]);
   const therapist = await resolveMyTherapist(user.id);
   if (!therapist) return { ok: false, message: "マッサージ師アカウントではありません" };
@@ -346,63 +359,92 @@ export async function createAbsenceRequest(input: {
   }
 
   const range = await resolveAbsenceRange(therapist.id, input.date, input.target);
-  const overlappingCount = range
-    ? await prisma.reservation.count({
-        where: {
-          therapistId: therapist.id,
-          status: "booked",
-          startAt: { lt: range.end },
-          endAt: { gt: range.start },
-        },
-      })
-    : 0;
+  if (!range) return { ok: false, message: "その日は元々勤務がありません" };
 
-  await prisma.absenceRequest.create({
+  const overlappingCount = await prisma.reservation.count({
+    where: {
+      therapistId: therapist.id,
+      status: "booked",
+      startAt: { lt: range.end },
+      endAt: { gt: range.start },
+    },
+  });
+  if (overlappingCount > 0) {
+    return {
+      ok: false,
+      message: `この時間帯には予約が ${overlappingCount} 件入っているため、休みを登録できません。`,
+    };
+  }
+
+  const reason = input.reason?.trim() || null;
+
+  await prisma.therapistAbsence.create({
     data: {
       therapistId: therapist.id,
-      date: toDateTime(input.date, "00:00"),
-      target: input.target,
-      reason: input.reason?.trim() || null,
-      status: "pending",
+      startAt: range.start,
+      endAt: range.end,
+      reason,
+      createdById: user.id,
     },
   });
 
+  await notifyAdmins(
+    `${therapist.user.name}さんが ${input.date}（${TARGET_LABEL[input.target]}）の休みを登録しました` +
+      (reason ? `（理由：${reason}）` : ""),
+  );
+
   revalidatePath("/therapist/absence");
 
-  return {
-    ok: true,
-    overlappingCount,
-    message:
-      overlappingCount > 0
-        ? `休みを申請しました。この日には予約が ${overlappingCount} 件入っています。承認され次第、管理者が調整します。`
-        : "休みを申請しました。管理者の承認をお待ちください。",
-  };
+  return { ok: true, message: "休みを登録しました" };
 }
 
-export type AbsenceRequestRow = {
+export type AbsenceRow = {
   id: string;
   date: string;
-  target: AbsenceTarget;
+  startTime: string;
+  endTime: string;
   reason: string | null;
-  status: "pending" | "approved" | "rejected";
   createdAt: string;
 };
 
-export async function listMyAbsenceRequests(): Promise<AbsenceRequestRow[]> {
+/** 自分が登録した休みの一覧（新しい日付が先） */
+export async function listMyAbsences(): Promise<AbsenceRow[]> {
   const user = await requireRole(["therapist"]);
   const therapist = await resolveMyTherapist(user.id);
   if (!therapist) return [];
 
-  const rows = await prisma.absenceRequest.findMany({
-    where: { therapistId: therapist.id },
-    orderBy: { createdAt: "desc" },
+  const rows = await prisma.therapistAbsence.findMany({
+    where: { therapistId: therapist.id, createdById: user.id },
+    orderBy: { startAt: "desc" },
   });
   return rows.map((r) => ({
     id: r.id,
-    date: toDateString(r.date),
-    target: r.target as AbsenceTarget,
+    date: toDateString(r.startAt),
+    startTime: hhmmOfLocal(r.startAt),
+    endTime: hhmmOfLocal(r.endAt),
     reason: r.reason,
-    status: r.status as AbsenceRequestRow["status"],
     createdAt: toDateString(r.createdAt),
   }));
+}
+
+export type CancelAbsenceResult = { ok: true; message: string } | { ok: false; message: string };
+
+/** 登録した休みを取り消す。自分が登録したものだけ取り消せる */
+export async function cancelAbsence(id: string): Promise<CancelAbsenceResult> {
+  const user = await requireRole(["therapist"]);
+  const therapist = await resolveMyTherapist(user.id);
+  if (!therapist) return { ok: false, message: "マッサージ師アカウントではありません" };
+
+  const absence = await prisma.therapistAbsence.findUnique({ where: { id } });
+  if (!absence || absence.therapistId !== therapist.id || absence.createdById !== user.id) {
+    throw new AuthError("この休みを取り消す権限がありません");
+  }
+
+  await prisma.therapistAbsence.delete({ where: { id } });
+
+  await notifyAdmins(`${therapist.user.name}さんが ${toDateString(absence.startAt)} の休みを取り消しました`);
+
+  revalidatePath("/therapist/absence");
+
+  return { ok: true, message: "休みの登録を取り消しました" };
 }

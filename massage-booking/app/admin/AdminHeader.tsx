@@ -25,17 +25,21 @@ export function AdminHeader({
   user,
   /** 管理者画面以外への行き先（例: マッサージ師向け画面）。タブではなくリンクとして末尾に置く */
   extraLinks = [],
+  /** メールボックス・プッシュ通知ボタンなど、ユーザー欄の手前に置くボタン類 */
+  actions,
 }: {
   title: string;
   current: AdminPath;
   user: SessionUser;
   extraLinks?: { href: string; label: string }[];
+  actions?: React.ReactNode;
 }) {
   return (
     <header className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
       <h1 className="text-xl font-bold sm:text-2xl">{title}</h1>
 
-      <div className="order-2 sm:order-3">
+      <div className="order-2 flex items-center gap-3 sm:order-3">
+        {actions}
         <UserBar user={user} />
       </div>
 

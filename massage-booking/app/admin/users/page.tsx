@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { listUsers } from "@/app/actions/users";
+import { getUnreadMailboxCount } from "@/app/actions/mailbox";
 import { GENDER_LABEL, ROLE_LABEL, ROLES, isRole, isGender } from "@/lib/roles";
 import { getCurrentUserForRequest } from "@/lib/session";
+import { MailboxButton } from "../../MailboxButton";
 import { AddUserDialog } from "../AddUserDialog";
 import { AdminHeader } from "../AdminHeader";
 import { UserActions } from "./UserActions";
@@ -50,6 +52,7 @@ export default async function AdminUsersPage({
   const user = await getCurrentUserForRequest();
   if (!user) redirect("/login?next=%2Fadmin%2Fusers");
   if (user.role !== "admin") redirect("/?denied=admin");
+  const unreadMailboxCount = await getUnreadMailboxCount();
 
   const params = await searchParams;
   const keyword = params.q?.trim() ?? "";
@@ -76,7 +79,12 @@ export default async function AdminUsersPage({
   // sm 以上は従来どおり w-auto に戻す（PC では main の幅が変わってしまうため）。
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:w-auto sm:px-6 sm:py-10">
-      <AdminHeader title="ユーザー管理" current="/admin/users" user={user} />
+      <AdminHeader
+        title="ユーザー管理"
+        current="/admin/users"
+        user={user}
+        actions={<MailboxButton initialUnreadCount={unreadMailboxCount} />}
+      />
 
       {/* --- 絞り込み ---------------------------------------------------- */}
       <section className="mb-4 rounded-2xl border border-rose-200/70 bg-rose-50/50 px-4 py-4 sm:px-5 dark:border-white/10 dark:bg-white/5">

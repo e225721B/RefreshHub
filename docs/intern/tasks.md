@@ -878,6 +878,134 @@ $ npm run build      → ✓ / Route: / , /admin , /admin/stats , /admin/users ,
 
 ---
 
+# 追加（2026-09-10）: 休み申請の管理者通知に、ブラウザプッシュ通知を追加
+
+学生の指示: 「マッサージ師の休み申請の通知を、現状のもの（アプリ内メールボックス）に**プラスして**、
+管理者にブラウザプッシュ通知も行くようにしたい」。既存の `notifyAdmins()`（`app/actions/therapist.ts`）を置き換えず、
+**追加**する形にした。
+
+## 実装前に決めたこと（学生の回答）
+
+| # | 論点 | 決定 |
+|---|---|---|
+| P-1 | 通知の許可（購読）をいつ求めるか | **`/admin` にボタンを置き、押したときだけブラウザの許可ダイアログを出す。**ログイン直後に自動で求めると、いきなりのダイアログで拒否されやすいため |
+| P-2 | 通知をクリックしたときの遷移先 | **`/admin`**（予約状況画面）。フォーカス済みのタブがあればそれを前面に出し、無ければ新しく開く |
+| P-3 | 「登録」だけでなく「取消」でも送るか | **両方。**既存の `notifyAdmins()` は登録・取消どちらからも呼ばれているため、その関数自体を拡張すれば自然に両方へ広がる |
+
+## 仕組み
+
+このプロジェクトに Web Push 基盤が無かったため、ゼロから追加した（Next.js 公式ガイド
+`node_modules/next/dist/docs/01-app/02-guides/progressive-web-apps.md` に沿った構成）。
+
+```
+休み登録/取消 → notifyAdmins(body)
+                 ├─ 既存: MailboxMessage を作成（アプリ内お知らせ）
+                 └─ 追加: sendPushToAdmins() → 管理者の PushSubscription 全件へ Web Push 送信
+```
+
+| ファイル | 役割 |
+|---|---|
+| `prisma/schema.prisma`（`PushSubscription` 追加） | 購読情報（endpoint / p256dh / auth）。1 人が複数端末で購読できるよう endpoint 単位で持つ |
+| `public/service-worker.js` | push イベントで通知を表示し、クリックされたら `/admin` にフォーカス／遷移する |
+| `lib/push.ts` | `sendPushToAdmins()`。VAPID 鍵が無い環境では何もしない。**送信失敗は例外を投げず**、呼び出し元（休みの登録・取消）を止めない。届かなくなった購読（404/410）はその場で削除する |
+| `app/actions/push.ts` | `subscribeToPush` / `unsubscribeFromPush`（Server Action。`requireRole(["admin"])` で保護） |
+| `app/admin/PushNotificationButton.tsx` | 「プッシュ通知を有効にする」ボタン（`/admin` ヘッダー）。押すとブラウザの許可ダイアログ→購読→DB保存まで一気に行う |
+| `app/actions/therapist.ts`（`notifyAdmins` 拡張） | メールボックス書き込みに続けて `sendPushToAdmins()` を呼ぶだけの 1 行追加 |
+| `.env` | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`（`npx web-push generate-vapid-keys` で生成した開発用の鍵） |
+
+`web-push` パッケージ（+ `@types/web-push`）を追加。マイグレーション: `prisma/migrations/20260910095853_push_subscriptions/`。
+
+## 確認ログ
+
+### 自動テスト・型・Lint・ビルド
+
+```
+$ npx tsx --test lib/*.test.ts
+# tests 87
+# pass 87
+# fail 0
+
+$ npx tsc --noEmit   → エラー 0
+$ npm run lint       → エラー 0
+$ npm run build      → ✓ / 既存のルートに変更なし
+```
+
+### 送信の後始末（届かなくなった購読の自動削除）を確認
+
+管理者に、実在しないダミーの endpoint で購読を 1 件だけ仮登録し、`sendPushToAdmins()` を直接呼び出した。
+
+```
+1 回目: 認証キーの長さが不正なテストデータ → web-push がエラーを返す
+        → sendPushToAdmins は例外を投げずに完了（呼び出し元を止めない設計どおり）
+
+2 回目: 正しい形式のダミー購読（実在しない endpoint）で再実行
+        → 送信先（Google の Push サービス）から 404/410 相当の応答
+        → sendPushToAdmins が購読を自動削除
+        → 後始末で同じ id を削除しようとしたら Prisma が
+          「No record was found for a delete」＝ 既に削除済みであることを確認
+```
+
+**「届かなくなった購読を自動で掃除する」動作が実際に働くことを確認した。**
+テスト用の購読データは残っていない（自動削除された）。
+
+### ブラウザでの実機確認（2026-09-11・確認済み）
+
+学生から「同時に管理者とマッサージ師の画面を開けず確認できなかった」と連絡を受け、代わりに確認した。
+`browser.newContext()`（シークレットウィンドウ相当）は Chrome が Push API 自体を許可しない
+（`Chrome currently does not support the Push API in incognito mode`）ため、
+**別々のプロファイルディレクトリで Chrome を 2 つ起動し**、片方を管理者、もう片方をマッサージ師としてログインさせて確認した
+（学生が「同時に開けない」と感じた制約は、ブラウザのプロファイルを分ければ回避できる。通常のブラウザでも
+「管理者は通常ウィンドウ、マッサージ師はシークレットウィンドウ」等、別プロファイル相当にすれば同時に開ける）。
+
+```
+1. 管理者プロファイルでログイン → /admin → 「プッシュ通知を有効にする」→ 許可 → 「プッシュ通知 ON」に変化
+   購読先: https://fcm.googleapis.com/fcm/send/f0ld-neVToc:APA91bHfjsEj...（実際の Google の Push サービス）
+
+2. 別プロファイルでマッサージ師（施術者 A）としてログイン → /therapist/absence
+   → 2026-09-17（終日・理由「自動確認テスト」）で休みを登録 → 「休みを登録しました」
+
+3. 管理者側の画面をアクティブにせず、Service Worker の通知一覧（registration.getNotifications()）を確認
+   → 実際に通知が 1 件表示されていた:
+       タイトル: 「お知らせ」
+       本文  : 「施術者 男性1さんが 2026-09-17（終日）の休みを登録しました（理由：自動確認テスト）」
+       data  : { url: "/admin" }（クリック時の遷移先。service-worker.js の notificationclick で使う値）
+
+4. マッサージ師側で同じ休みを取り消す → 管理者側にもう 1 件、取消の通知が届いていることを確認:
+       「施術者 男性1さんが 2026-09-17 の休みを取り消しました」
+
+5. 後始末: 休みの取消（済み）・プッシュ通知の購読解除（「プッシュ通知 ON」→ 押して解除）を実施。
+   確認後、DB に購読・休み登録とも 0 件であることを確認（テストデータは残っていない）
+```
+
+**登録・取消のどちらでも、実際に Google の Push サービスまで届いて通知が生成されることを確認した。**
+これは lib/push.ts のロジックが正しいことをコード上で確認しただけでなく、
+**実際のブラウザ（Chrome）・実際の VAPID 鍵・実際の Push サービスを使って end-to-end で確認した**という意味で、
+前節（ダミー endpoint でのエラー処理確認）より一段強い確認になっている。
+
+残っているのは、**画面に実際に浮かぶ通知トースト（Windows の右下など）を目で見る**ことと、
+**そのトーストをクリックして `/admin` にフォーカス／遷移すること**の 2 点。
+これは自動操作では検証しづらい「見た目」の確認であり、`service-worker.js` の該当コードは変更していない
+（`notificationclick` で `data.url` を見て `clients.openWindow` / `focus` するだけの単純な処理）ため、
+毎回の動作確認としては上記の自動確認で十分と考えている。念のため目視したい場合は以下を実施する。
+
+1. `npm run dev` → 管理者でログイン → `http://localhost:3000/admin` → 「プッシュ通知を有効にする」→ 許可
+2. 別のマッサージ師アカウントで休みを登録する
+3. 画面右下（Windows）にトーストが浮かぶか、クリックで `/admin` のタブにフォーカスが移るか
+
+**注意:** Web Push は HTTPS（または `localhost`）でのみ動く。`localhost:3000` での確認であれば問題ない。
+
+## 既知の制約
+
+| # | 内容 |
+|---|---|
+| PUSH-1 | VAPID 鍵は開発用に生成したもの。本番運用する場合は鍵を再生成し、`.env` を環境ごとに分ける |
+| PUSH-2 | 管理者がブラウザの通知設定自体をオフにしている場合は届かない（OS 側の設定なのでアプリ側では検知できない） |
+| PUSH-3 | メールボックス（既存）とプッシュ通知（今回追加）は同じ文言を使っている。プッシュ通知だけ短く要約する、という要望が出たら `notifyAdmins` の呼び出し側でタイトル・本文を分ければ対応できる |
+
+確認: 学生 [ ] / メンター [ ]
+
+---
+
 # トップ画面の再構成 + マッサージ師紹介画面（画面 2〜4）
 
 学生が持参したトップ画面・マッサージ師紹介画面のスクリーンショットに合わせて実装した。
@@ -1121,83 +1249,125 @@ $ npx tsc --noEmit   → エラー 0
 $ npm run build      → ✓（/admin, /admin/stats, /admin/users, /therapist ほか）
 $ npm run lint       → 上記 1 件のみ（マージ由来）
 ```
+## 2026-09-10: マッサージ師への Slack DM 通知（AC-11 改訂 / AC-18）
 
----
+要件・設計の変更は `requirements.md`（2026-09-10 の変更）・`design.md`（D-2 の改訂）に記録済み。
 
-## 追加（2026-09-11）: 担当マッサージ師の決め方（ブランチ `fix/reserve_logic`）
+### 実装したこと
 
-### 聞かれたこと
-
-1. マッサージ師が指名された場合、その人を選べるか（その時間に予約が入っていないか）
-2. 指名がない場合は、その日まだ稼働していない人から回して、偏りなく振り分ける
-3. 2 人に絞り込んだ場合も、施術時間が少ない方から予約が入るようにする
-4. 女性だけを選んだときは、スケジュール表の午後が灰色になるはず
-
-### 1: 判定はしていなかったので、保存時に確かめるようにした
-
-その時間に勤務していて予約が重なっていない人を絞り込む処理は元からあったが、
-**保存するときには確かめていなかった**。予約の保存は画面を通さずに直接呼べるため、
-勤務していない人・すでに埋まっている人を指定されても保存できてしまう状態だった。
-
-`canAssignTherapist`（`lib/slots.ts`）を追加し、保存の直前に
-「その時間に勤務しているか」「他の予約と重なっていないか」を確かめる。
-満たさなければ「指定されたマッサージ師はその時間に対応できません」と返して保存しない。
-
-### 2 / 3: 実際に偏っていたので、決め方を変えた
-
-`lib/slots.ts` は `.find()` で**勤務リストの先頭から最初に空いている人**を選んでいた。
-そのため予約が少ないうちは毎回同じ人に割り当たる。決め方を次のようにした。
-
-1. **その日の担当時間（施術 + 清掃 15 分）が少ない人**を優先する。まだ担当が無い人は 0 分なので必ず先に選ばれる
-2. 担当時間が並んだら、**時間帯ごとに順番をずらす**（9:00 は 1 番目、9:15 は 2 番目…）
-
-2 が無いと、全員 0 分の朝いちばんに先頭の人へ全部の枠が寄ってしまう。
-**施術者を絞り込んでいるときも同じ**で、残った人の中で担当時間が少ない方から入る。
-
-実際に予約を入れながら確かめた結果（施術者 B・C だけにチェックを入れ、B が先に 60 分持っている状態）:
-
-```
-1 人目 → C（B 60 / C 45）   2 人目 → C（B 60 / C 90）
-3 人目 → B（B 105 / C 90）  4 人目 → C（B 105 / C 135）
-5 人目 → B（B 150 / C 135） 6 人目 → C（B 150 / C 180）
-```
-
-追い越すたびに相手へ切り替わり、2 人の差が常に 1 枠ぶんに収まっている。
-
-### 4: 原因はシードデータの間違いだった
-
-割り当ての処理ではなく、**`prisma/seed.ts` が「午前のみ」を男性の施術者 B に登録していた**ことが原因。
-女性の施術者 A には例外が無く、既定（9:00〜14:00・15:00〜20:00）で午後も勤務している扱いになっていた。
-シード自身のコメントは「要件 Q-3 に合わせる: 午前は女性 1 名 + 男性 3 名、午後は男性 3 名」と書いてあり、
-**意図と実装が食い違っていた**。
-
-「午前のみ」を**性別から引く**ように直した（id 直書きをやめ、担当者が入れ替わっても間違えないようにした）。
-
-```
-女性だけ: 午前 19 件 / 午後 0 件 ← 午後は灰色
-男性だけ: 午前 19 件 / 午後 19 件
-```
-
-### 変えたファイル
-
-| ファイル | 変更 |
+| ファイル | 内容 |
 |---|---|
-| `lib/slots.ts` | `assignedMinutes` / `pickTherapist` を追加して割り当てを差し替え。`canAssignTherapist` を追加 |
-| `lib/slots.test.ts` | 割り当ての偏り・絞り込み時の優先・指名の判定のテストを追加（合計 36 件） |
-| `app/actions/booking.ts` | 保存の直前に `canAssignTherapist` で確認する |
-| `prisma/seed.ts` | 「午前のみ」を女性の施術者に付ける（要件 R-2 / Q-3） |
-| `docs/intern/design.md` | 割り当ての決め方と、保存時の確認を追記 |
+| `massage-booking/lib/slack.ts`（新規） | `notifyTherapistViaSlack(email, text)`。`users.lookupByEmail` で Slack User ID を引き、`chat.postMessage` で DM を送る。**失敗しても例外を投げず、ログに残すだけ**（送信失敗時も予約自体は成立させる、という決定どおり） |
+| `massage-booking/app/actions/booking.ts` | `createReservation`（予約確定）・`cancelReservation`（キャンセル）の成功後に `notifyTherapistViaSlack` を呼び出す。担当マッサージ師のメールアドレスは `Reservation.therapist.user.email` から取得 |
 
-### 確認
+`Notification` テーブルへの記録は行わない（疑似送信をやめて実送信に置き換える、という決定のため）。
 
-```
-$ npx tsx --test lib/slots.test.ts  → 36 件すべて pass
-$ npx tsc --noEmit                  → エラー 0
-$ npm run build                     → ✓
-```
+### 確認したこと
+
+- Slack Bot（`RefreshHub-notification`）の Bot Token で、開発者本人の Slack DM に実際にメッセージが届くことを確認済み（`chat:write` スコープで疎通確認）
+- `npx tsc --noEmit` / `npx eslint app/actions/booking.ts lib/slack.ts`: エラー 0
+- `npx tsx --test lib/*.test.ts`: **56 件すべて pass**（既存テストへの影響なし）
+- ブラウザから実際に予約→キャンセルを行い、サーバーログで両方のタイミングで通知処理が呼ばれることを確認。
+  `SLACK_BOT_TOKEN` 未設定の開発環境では `[slack] SLACK_BOT_TOKEN が未設定のため通知をスキップしました` とログに出るだけで、
+  **予約・キャンセル自体は正常に成立する**ことを確認（送信失敗時の決定どおり）
+
+### 残っていること（学生が確認すること）
+
+`massage-booking/.env` に実際の `SLACK_BOT_TOKEN` を設定した状態で、実際に予約→キャンセルを行い、
+**自分の Slack に「予約が入りました」「予約がキャンセルされました」の DM が届くか**を確認する
+（テスト対象は開発中の合意どおり中山さん本人のみ。他の施術者役アカウント宛には送らない）。
+
+## 2026-09-10（続き）: 15分前リマインド（AC-12）と通知メッセージのリニューアル
+
+要件・設計の変更は `requirements.md`（AC-12 の変更）・`design.md`（D-2 の再改訂）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/prisma/schema.prisma` | `Reservation.reminderSentAt`（nullable）を追加。リマインド送信済みかどうかの二重送信防止だけに使う |
+| `massage-booking/lib/notification-messages.ts`（新規） | 確定・キャンセル・リマインド（施術者向け／利用者向け）の Slack メッセージ文面を集約。中山さん共有の社内Botメッセージ例を参考に、絵文字とボットの名乗りを入れたトーンに統一 |
+| `massage-booking/lib/slack.ts` | `notifyTherapistViaSlack` を汎用の `sendSlackDM(email, text)` に変更（利用者にも使うため） |
+| `massage-booking/lib/reminders.ts`（新規） | `sendUpcomingReminders()`。「まだ知らせていない・15分以内に始まる予約」を検索し、施術者・利用者の双方に Slack DM を送って `reminderSentAt` を記録する |
+| `massage-booking/app/api/cron/remind/route.ts`（新規） | `GET /api/cron/remind`。`Authorization: Bearer <CRON_SECRET>` が一致したときだけ `sendUpcomingReminders()` を実行する。`CRON_SECRET` 未設定時は常に拒否（フェイルクローズ） |
+| `massage-booking/app/actions/booking.ts` | 確定・キャンセルの通知文面を `lib/notification-messages.ts` の関数呼び出しに置き換え |
+
+利用者向けリマインドのキャンセル導線は `${APP_BASE_URL}/#my-reservations`（「自分の予約」セクションへのリンク）。
+リンクを踏んだだけでキャンセルされることはなく、既存のキャンセル確認モーダルに誘導するだけ。
+
+### 確認したこと
+
+- `npx tsc --noEmit` / `npx eslint`: エラー 0（既存の無関係な `LayoutProps` エラーを除く）
+- `npx tsx --test lib/*.test.ts`: 56件すべて pass
+  - 確認の過程で `therapist-a@example.com` が無効化されている（開発DBの状態のずれ、原因不明）ことに気づき、`reactivateUserAccount` で再有効化してテストを通した
+- `sendUpcomingReminders()` を直接実行し、15分以内に始まる仮の予約を1件検出→通知処理を呼び出し→`reminderSentAt` が記録されることを確認
+  - この確認で **Prisma がクエリ実行時に `.env` を丸ごと読み込む副作用**により、意図せず実際の `SLACK_BOT_TOKEN` を使って Slack へ問い合わせが飛んだ（結果は `invalid_auth`）。中山さんに報告済み
+
+### `invalid_auth` の原因判明・解消（2026-09-10 追記）
+
+原因は、Claude が `.env` に `CRON_SECRET` を追記した際に**改行を入れずに追記してしまい、`SLACK_BOT_TOKEN` の行と
+くっついていた**こと。3行に分けて修正し、dev サーバー再起動後に解消した。実際に予約確定・キャンセルの Slack DM が
+中山さん本人に届くことを確認済み。
+
+## 2026-09-10（続き2）: AC-12 を「毎朝9時の一括通知」に変更（デプロイ先が Vercel 無料プランに決定）
+
+要件・設計の変更は `requirements.md`・`design.md`（D-2 の三度目の改訂）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/lib/reminders.ts` | `sendUpcomingReminders`（15分前判定）を `sendDailyDigest` に置き換え。当日の未通知予約を利用者ごと・マッサージ師ごとにグループ化し、それぞれ1通ずつ送る |
+| `massage-booking/lib/notification-messages.ts` | `reminderMessageForUser` / `reminderMessageForTherapist`（1件ごと）を `dailyDigestMessageForUser` / `dailyDigestMessageForTherapist`（複数件をまとめて箇条書き）に置き換え |
+| `massage-booking/app/api/cron/remind/route.ts` | `sendDailyDigest` を呼ぶように変更（認可の仕組みは変更なし） |
+| `massage-booking/vercel.json`（新規） | Vercel Cron の設定。`schedule: "0 0 * * *"`（UTC 0:00 = JST 9:00）で `/api/cron/remind` を1日1回叩く |
+
+### 確認したこと
+
+- `npx tsc --noEmit` / `npx eslint`: エラー 0
+- テスト用の予約を作って `sendDailyDigest()` を直接実行し、当日の未通知予約が利用者・マッサージ師ごとに正しくグループ化されることを確認（`SLACK_BOT_TOKEN` は確認のため空にして実行し、実際の送信はしていない）
+  - この確認の過程で、中山さんが以前作った未削除のテスト予約2件も巻き込んで `reminderSentAt` を立ててしまったため、それらは元の未送信状態に戻した（自分のテスト分だけ削除）
+
+### 残っていること（学生が確認すること）
+
+1. Vercel にデプロイする際、プロジェクトの環境変数に `SLACK_BOT_TOKEN` と `CRON_SECRET` を設定する（Vercel の Cron は `CRON_SECRET` を設定するだけで `Authorization` ヘッダーを自動で付けてくれる）
+2. ローカルでも毎朝9時に自動実行されるよう、crontab への登録を予定（別途相談して設定する）
+3. `curl -H "Authorization: Bearer <CRON_SECRET>" http://localhost:3000/api/cron/remind` で手動実行し、当日の予約があれば利用者・マッサージ師それぞれに1通ずつ届くか確認する
+
+## 2026-09-10（続き3）: 利用者向け通知にキャンセル締切の注意書きを追加
+
+中山さんの指摘: 「キャンセルは施術開始の2時間前を過ぎるとできなくなる（D-3）。案内が届いた時点でもう間に合わないことがあるので、その旨を表示に加えたい」。
+
+`lib/notification-messages.ts` の `dailyDigestMessageForUser` に、キャンセルリンクの下へ固定の注意書き
+「※施術開始の2時間前を過ぎるとキャンセルできません」を追加した（リンク自体は常に表示し、文言で補足する方式）。
+
+## 2026-09-11: AC-19（週1回まで）の実装
+
+要件・設計の変更は `requirements.md`（AC-19追加）・`design.md`（AC-19の実装方針）に記録済み。
+
+### 実装したこと
+
+| ファイル | 内容 |
+|---|---|
+| `massage-booking/app/actions/booking.ts` | `createReservation` に、同じ週（月曜始まり）に `booked` の予約が既にあれば保存を拒否するチェックを追加。`getBookedReservationInWeek` を新規追加し、週表示側から呼べるようにした |
+| `massage-booking/app/WeekSchedule.tsx` | 週内に予約がある場合、その週全体を「空きなし」と同じ扱いで選択不可にし、案内文を表示。**本人の予約時間帯だけは薄いピンクの細い斜め線パターンで色分け**して、他の「選べない」マスと区別できるようにした |
+| `massage-booking/app/MyUpcomingReservations.tsx` | キャンセル成功時に `RESERVATION_UPDATED_EVENT` を発火するよう追加。これが無いと、キャンセル後も週表示側のグレーアウトが残ったままになる不具合があった |
+| `massage-booking/app/GuideModal.tsx` | 利用ガイドに「週に一回のみ利用可能」の注記を追加 |
+
+### 確認したこと
+
+- 型チェック・lint: エラー0
+- ブラウザで、予約がある週（グレーアウト＋自分の予約時間だけ色分け）／無い週（通常通り選択可）の両方を確認
+- キャンセル直後、ページ遷移なしで週表示のグレーアウトが解除されることを確認
 
 ### 残っていること
 
-- **個人の指名の入口は作っていない。** 予約画面のチェックボックスは施術者を選ぶ形になっているため、
-  「1 人だけチェックする」ことが実質の指名として働く。専用の UI が要るかは未決。
-- `npm run lint` のエラー 1 件（`app/therapist/today/UserHistoryModal.tsx`）は `main` 由来で、この変更とは無関係。
+「施術者の指名」の文言を「絞り込むと指名できます」に変更したが、**特定の施術者を名指しで指定する機能自体は今回実装していない**（別PRで対応中とのこと）。そちらがマージされるまでは、ガイドの文言が実際の挙動より少し先行している状態になる。
+
+## 2026-09-11: Slack通知の文面トーンを利用者・マッサージ師で分ける
+
+中山さんの指示: 「利用者へのメッセージはもっと絵文字使って可愛くして、マッサージ師への連絡は業務的な連絡でいい」。
+
+`lib/notification-messages.ts` を、利用者向け（`dailyDigestMessageForUser`）は絵文字を増やしてやわらかいトーンに、
+マッサージ師向け（`reservedMessageForTherapist` / `cancelledMessageForTherapist` / `dailyDigestMessageForTherapist`）は
+絵文字を外して業務連絡の体裁に変更した。型チェック・lintともにエラーなし。
