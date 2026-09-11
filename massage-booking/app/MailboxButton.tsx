@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { listMyMailbox, markAllMailboxRead, type MailboxMessageRow } from "@/app/actions/mailbox";
 
 /**
@@ -41,56 +42,60 @@ export function MailboxButton({ initialUnreadCount }: { initialUnreadCount: numb
         )}
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setOpen(false)}
-        >
+      {open &&
+        createPortal(
+          // ヘッダーの backdrop-blur が fixed 要素の基準をヘッダー自身にしてしまうため、
+          // document.body 直下に portal してビューポート全体を基準に中央寄せする。
           <div
-            className="flex h-[min(640px,80vh)] w-full max-w-lg flex-col rounded-2xl bg-background p-6 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            onClick={() => setOpen(false)}
           >
-            <h2 className="text-lg font-bold text-stone-800 dark:text-stone-100">お知らせ</h2>
-
-            <div className="mt-4 flex-1 space-y-2 overflow-y-auto">
-              {messages === null ? (
-                <p className="py-10 text-center text-sm text-stone-400">読み込み中…</p>
-              ) : messages.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-black/15 px-4 py-10 text-center text-sm text-stone-400 dark:border-white/20">
-                  お知らせはありません
-                </p>
-              ) : (
-                messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm ${
-                      m.unread
-                        ? "border-rose-200/70 bg-rose-50/80 dark:border-rose-400/20 dark:bg-rose-500/10"
-                        : "border-black/10 dark:border-white/10"
-                    }`}
-                  >
-                    {m.unread && (
-                      <span className="mt-1.5 size-2 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />
-                    )}
-                    <div>
-                      <p className="text-stone-700 dark:text-stone-200">{m.body}</p>
-                      <p className="mt-1 text-xs text-stone-400 dark:text-stone-500">{m.createdAtLabel}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="mt-6 w-full shrink-0 rounded-full border border-black/15 px-4 py-2 text-sm dark:border-white/20"
+            <div
+              className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-background p-4 shadow-xl sm:p-6"
+              onClick={(e) => e.stopPropagation()}
             >
-              閉じる
-            </button>
-          </div>
-        </div>
-      )}
+              <h2 className="shrink-0 text-lg font-bold text-stone-800 dark:text-stone-100">お知らせ</h2>
+
+              <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
+                {messages === null ? (
+                  <p className="py-10 text-center text-sm text-stone-400">読み込み中…</p>
+                ) : messages.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-black/15 px-4 py-10 text-center text-sm text-stone-400 dark:border-white/20">
+                    お知らせはありません
+                  </p>
+                ) : (
+                  messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-sm ${
+                        m.unread
+                          ? "border-rose-200/70 bg-rose-50/80 dark:border-rose-400/20 dark:bg-rose-500/10"
+                          : "border-black/10 dark:border-white/10"
+                      }`}
+                    >
+                      {m.unread && (
+                        <span className="mt-1.5 size-2 shrink-0 rounded-full bg-rose-500" aria-hidden="true" />
+                      )}
+                      <div>
+                        <p className="text-stone-700 dark:text-stone-200">{m.body}</p>
+                        <p className="mt-1 text-xs text-stone-400 dark:text-stone-500">{m.createdAtLabel}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="mt-6 w-full shrink-0 rounded-full border border-black/15 px-4 py-2 text-sm dark:border-white/20"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </>
   );
 }
