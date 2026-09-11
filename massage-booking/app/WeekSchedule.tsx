@@ -17,7 +17,6 @@ import { GENDER_LABEL, GENDERS, isGender } from "@/lib/roles";
 import type { SelectableTherapist } from "@/lib/therapists";
 import { RESERVATION_UPDATED_EVENT } from "@/lib/events";
 import { FlashToast } from "./FlashToast";
-import { GuideModal } from "./GuideModal";
 import { useFlashMessage } from "./useFlashMessage";
 
 // 表に並べる時間の範囲。稼働時間（9:00〜14:00 / 15:00〜20:00）を含む幅で描き、
@@ -285,8 +284,6 @@ export function WeekSchedule({
             </div>
           )}
         </fieldset>
-
-        <GuideModal />
       </div>
 
       <p className="text-sm text-black/70 dark:text-white/70">

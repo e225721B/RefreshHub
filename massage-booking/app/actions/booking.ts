@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { hhmmOfLocal, isStartPassed, toDateString, toDateTime, weekdaysFrom } from "@/lib/dates";
 import {
   CLEANUP_MIN,
+  STEP_MIN,
   TREATMENT_OPTIONS,
   canAssignTherapist,
   getAvailableSlots,
@@ -130,6 +131,105 @@ export async function fetchWeekAvailability(
   }
 
   return result;
+}
+
+export type QuickSlotResult =
+  | {
+      ok: true;
+      date: string;
+      startTime: string;
+      blockEndTime: string;
+      treatmentMin: number;
+      bedId: string;
+      bedName: string;
+      therapistId: string;
+      therapistName: string;
+      gender: string;
+    }
+  | { ok: false; message: string };
+
+/** 「今から N 分後」を、枠の刻み幅（15 分）に切り上げる */
+function roundUpToStep(date: Date): { dateStr: string; hhmm: string } {
+  const rounded = new Date(date);
+  rounded.setSeconds(0, 0);
+  const remainder = rounded.getMinutes() % STEP_MIN;
+  if (remainder !== 0) rounded.setMinutes(rounded.getMinutes() + (STEP_MIN - remainder));
+  return { dateStr: toDateString(rounded), hhmm: hhmmOfLocal(rounded) };
+}
+
+/**
+ * トップ画面の「かんたん予約」用。
+ * 週表示（fetchWeekAvailability）と違い、条件に合う枠のうち「今から一番早い 1 件」だけを探す。
+ */
+export async function findQuickSlot(input: {
+  minutesFromNow: number;
+  treatmentMin: number;
+  /** 希望する施術者の性別。空なら絞り込みなし（誰でもよい） */
+  genders: string[];
+}): Promise<QuickSlotResult> {
+  if (!isValidTreatment(input.treatmentMin)) {
+    return { ok: false, message: "施術時間が正しくありません" };
+  }
+
+  const threshold = new Date(Date.now() + input.minutesFromNow * 60_000);
+  const { dateStr: date, hhmm: thresholdTime } = roundUpToStep(threshold);
+  const { start, end } = dayRange(date);
+
+  const [therapists, workHours, absences, beds, reservations] = await Promise.all([
+    prisma.therapist.findMany({
+      where: SELECTABLE_THERAPIST_WHERE,
+      include: { user: true },
+    }),
+    prisma.therapistWorkHours.findMany(),
+    prisma.therapistAbsence.findMany({ where: { startAt: { lt: end }, endAt: { gt: start } } }),
+    prisma.bed.findMany({ where: { active: true }, orderBy: { id: "asc" } }),
+    prisma.reservation.findMany({ where: { status: "booked", startAt: { gte: start, lt: end } } }),
+  ]);
+
+  // 「かんたん予約」は性別だけの簡単な絞り込みにしているが、空き枠計算は週表示と同じ
+  // 施術者 id ベースの条件（lib/slots.ts）しか受け付けないため、ここで id の集合に変換する。
+  const wantedGenders = new Set<string>(input.genders.filter((g) => g === "female" || g === "male"));
+  const therapistIds =
+    wantedGenders.size > 0 ? therapists.filter((t) => wantedGenders.has(t.user.gender)).map((t) => t.id) : undefined;
+
+  const therapistSlots = therapists.map((t) => ({ id: t.id, name: t.user.name, gender: t.user.gender }));
+  const shifts = resolveShiftsForDate({ date, therapists, workHours, absences });
+  const reservationWindows = reservations.map((r) => ({
+    bedId: r.bedId,
+    therapistId: r.therapistId,
+    startTime: hhmmOfLocal(r.startAt),
+    blockEndTime: hhmmOfLocal(r.endAt),
+  }));
+
+  const slots = getAvailableSlots({
+    shifts,
+    beds,
+    therapists: therapistSlots,
+    reservations: reservationWindows,
+    treatmentMin: input.treatmentMin,
+    therapistIds,
+  });
+
+  // 「N 分後」で指定された時刻ちょうどの枠だけを見る。空いていなければ、
+  // 別の時刻を勝手に探さずに「この条件では予約できません」と伝える（U-6）。
+  const next = slots.find((s) => s.startTime === thresholdTime);
+
+  if (!next) {
+    return { ok: false, message: "この条件では予約できません" };
+  }
+
+  return {
+    ok: true,
+    date,
+    startTime: next.startTime,
+    blockEndTime: next.blockEndTime,
+    treatmentMin: input.treatmentMin,
+    bedId: next.bedId,
+    bedName: next.bedName,
+    therapistId: next.therapistId,
+    therapistName: next.therapistName,
+    gender: next.gender,
+  };
 }
 
 export type ReserveResult =
