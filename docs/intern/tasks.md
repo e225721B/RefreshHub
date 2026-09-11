@@ -1363,3 +1363,11 @@ $ npm run lint       → 上記 1 件のみ（マージ由来）
 ### 残っていること
 
 「施術者の指名」の文言を「絞り込むと指名できます」に変更したが、**特定の施術者を名指しで指定する機能自体は今回実装していない**（別PRで対応中とのこと）。そちらがマージされるまでは、ガイドの文言が実際の挙動より少し先行している状態になる。
+
+## 2026-09-11: Slack通知の文面トーンを利用者・マッサージ師で分ける
+
+中山さんの指示: 「利用者へのメッセージはもっと絵文字使って可愛くして、マッサージ師への連絡は業務的な連絡でいい」。
+
+`lib/notification-messages.ts` を、利用者向け（`dailyDigestMessageForUser`）は絵文字を増やしてやわらかいトーンに、
+マッサージ師向け（`reservedMessageForTherapist` / `cancelledMessageForTherapist` / `dailyDigestMessageForTherapist`）は
+絵文字を外して業務連絡の体裁に変更した。型チェック・lintともにエラーなし。
