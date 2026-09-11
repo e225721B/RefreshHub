@@ -578,7 +578,7 @@ export function WeekSchedule({
                 >
                   {formatShort(date)}
                   {date === today && (
-                    <span className="ml-1 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
+                    <span className="ml-1 inline-block whitespace-nowrap rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-normal text-white dark:bg-rose-400 dark:text-rose-950">
                       今日
                     </span>
                   )}
